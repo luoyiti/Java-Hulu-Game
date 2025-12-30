@@ -1,9 +1,11 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/__4x0qgc)
-# j07
-
 # Developing a Java Game from Scratch
 
-罗一逖 231820309
+b站视频：[点击这里](https://www.bilibili.com/video/BV1twiABLEoZ/?vd_source=8406b05fa4fbafc453a0003b7d66d3c6)
+b站视频id号：BV1twiABLEoZ
+
+论文链接：
+[点击下载论文](https://box.nju.edu.cn/f/46367b5ee89b412ba8b0/?dl=1)
+[本地论文链接](developing_a_java_game_from_scratch.pdf)
 
 ## 开发目标（我写的游戏是个什么样的游戏，灵感来源是什么）
 
