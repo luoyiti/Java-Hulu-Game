@@ -1,115 +1,196 @@
 package com.gameengine.app;
 
 import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.LinkedList;
+import java.util.List;
 
+import com.gameengine.core.Camera;
 import com.gameengine.core.GameEngine;
+import com.gameengine.core.GameLogic;
 import com.gameengine.graphics.IRenderer;
+import com.gameengine.math.Vector2;
 import com.gameengine.scene.Scene;
+import com.google.gson.Gson;
+import com.gameengine.game.GameObjectRecord;
+import com.gameengine.game.Record;
 
 public class RecordingScene extends Scene {
     private String recordingPath;
-    private LinkedList<String> moves;
+    private LinkedList<Record> records;
     private IRenderer renderer;
     private GameEngine engine;
-    
+
     // 回放控制变量
     private int currentFrameIndex = 0;
     private float accumulatedTime = 0f;
-    private float targetTime = 0f;
-    private String currentFrameData = "";
-    
+    private float startTime = 0f;
+
     // 回放状态变量
     private int playerHealth = 100;
     private float skillCooldown = 1.0f;
 
+    private Record currentRecord;
+
+    private static Gson gson = new Gson();
+
+    private List<GameObjectRecord> currentFrameObjects = new ArrayList<>();
+    
+    // 摄像头相关
+    private Vector2 playerWorldPosition = null; // 玩家在世界坐标中的位置
+
     public RecordingScene(GameEngine engine, String recordingPath) {
         super("Recording");
         this.recordingPath = recordingPath;
-        this.engine = engine;
-        this.moves = getMoves();
         this.renderer = engine.getRenderer();
-        
-        // 加载第一帧
-        if (!moves.isEmpty()) {
-            loadFrame(0);
+        this.engine = engine;
+
+        try {
+            this.records = loadRecording(recordingPath);
+        } catch (IOException e) {
+            System.out.println("无法加载回放文件");
+            e.printStackTrace();
+            this.records = new LinkedList<>();
         }
+
+        if (!records.isEmpty()) {
+            startTime = records.get(0).getKey();
+            accumulatedTime = 0f;
+            currentFrameIndex = 0;
+            currentRecord = null;
+        }
+        
+        // 创建相机（视口800x600，世界地图2000x1500）
+        this.camera = new Camera(
+                800, 600,
+                GameLogic.WORLD_WIDTH,
+                GameLogic.WORLD_HEIGHT);
+        this.camera.setSmoothSpeed(0.15f); // 设置平滑跟随速度
+        
+        // 初始化相机位置到世界中心
+        this.camera.setPosition(new Vector2(GameLogic.WORLD_WIDTH / 2, GameLogic.WORLD_HEIGHT / 2));
     }
 
     @Override
     public void render() {
 
-        // 绘制背景（地图800x600）
-        renderer.drawRect(0, 0, 800, 600, 0.1f, 0.1f, 0.2f, 1.0f);
+        // 绘制背景（基于图片，根据相机位置滚动）
+        if (camera != null) {
+            Vector2 camPos = camera.getPosition();
+            float bgOffsetX = -(camPos.x - 400) * 0.5f; // 视差滚动效果（背景移动速度减半）
+            float bgOffsetY = -(camPos.y - 300) * 0.5f;
 
-        // 渲染当前帧的所有对象
-        if (!currentFrameData.isEmpty()) {
-            renderFrame(currentFrameData);
+            // 绘制平铺背景以覆盖整个视口
+            renderer.drawImage(
+                    "resources/picture/game_scene.png",
+                    bgOffsetX, bgOffsetY,
+                    2000.0f, 1500.0f,
+                    1.0f);
+        } else {
+            // 如果没有相机，使用原来的固定背景
+            renderer.drawImage(
+                    "resources/picture/game_scene.png",
+                    0, 0,
+                    800, 600,
+                    1.0f);
         }
-        
-        // 渲染UI元素
+
+        // 根据 currentFrameObjects 画出这一帧的所有对象
+        for (GameObjectRecord obj : currentFrameObjects) {
+            renderFrame(obj);
+        }
+
+        // 渲染玩家血量条（左上角）
         renderPlayerHealthBar();
+
+        // 渲染技能冷却条（右上角）
         renderSkillCooldownBar();
+
+        // 渲染UI元素
         renderReplayHint();
     }
-    
-    /**
-     * 渲染玩家血条
-     */
-    private void renderPlayerHealthBar() {
-        // 绘制"玩家血量"标签
-        renderer.drawText("玩家血量", 20, 20, 20, 1.0f, 1.0f, 1.0f, 1.0f);
-        
-        // 绘制血条
-        renderer.drawHealthBar(20, 50, 120, 10, playerHealth, 100);
-        
-        // 绘制血量数值
-        String healthText = playerHealth + " / 100";
-        renderer.drawText(healthText, 145, 60, 12, 1.0f, 1.0f, 1.0f, 1.0f);
-    }
-    
-    /**
-     * 渲染技能冷却条
-     */
-    private void renderSkillCooldownBar() {
-        int barX = 610;
-        int barY = 10;
-        
-        // 绘制"技能冷却"标签
-        renderer.drawText("技能冷却 (J)", barX + 10, barY + 10, 20, 1.0f, 1.0f, 1.0f, 1.0f);
-        
-        // 绘制冷却条
-        int cooldownBarWidth = 140;
-        int cooldownBarHeight = 10;
-        int cooldownBarX = barX + 20;
-        int cooldownBarY = barY + 35;
-        
-        int filledWidth = (int)(cooldownBarWidth * skillCooldown);
-        
-        if (skillCooldown >= 1.0f) {
-            renderer.drawRect(cooldownBarX, cooldownBarY, filledWidth, cooldownBarHeight, 
-                            0.0f, 1.0f, 0.0f, 1.0f);
-        } else {
-            renderer.drawRect(cooldownBarX, cooldownBarY, filledWidth, cooldownBarHeight, 
-                            1.0f, 0.8f, 0.0f, 1.0f);
-        }
-        
-        // 绘制百分比文字
-        String percentText = String.format("%.0f%%", skillCooldown * 100);
-        renderer.drawText(percentText, barX + 165, barY + 35, 12, 1.0f, 1.0f, 1.0f, 1.0f);
-    }
-    
+
     /**
      * 渲染回放提示
      */
     private void renderReplayHint() {
         int hintX = 10;
         int hintY = renderer.getHeight() - 40;
-        
+
         renderer.drawCircle(hintX + 8, hintY + 10, 6, 16, 0.0f, 0.8f, 1.0f, 1.0f);
         renderer.drawText("回放中... (ESC 返回)", hintX + 20, hintY + 15, 14, 0.7f, 0.9f, 1.0f, 1.0f);
+    }
+
+    /**
+     * 在屏幕左上角渲染玩家血条（模拟 GameScene）
+     */
+    private void renderPlayerHealthBar() {
+        int currentHealth = playerHealth;
+        int maxHealth = 100;
+
+        // 从当前记录中获取玩家血量
+        if (currentRecord != null) {
+            currentHealth = currentRecord.getPlayerHealth();
+            maxHealth = currentRecord.getPlayerMaxHealth();
+            if (maxHealth <= 0)
+                maxHealth = 100;
+        }
+
+        // 绘制"玩家血量"标签
+        renderer.drawText("玩家血量", 20, 20, 20, 1.0f, 1.0f, 1.0f, 1.0f);
+
+        // 绘制血条
+        renderer.drawHealthBar(20, 50, 120, 10, currentHealth, maxHealth);
+
+        // 绘制血量数值
+        String healthText = currentHealth + " / " + maxHealth;
+        renderer.drawText(healthText, 145, 60, 12, 1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
+    /**
+     * 在屏幕右上角渲染技能冷却条（模拟 GameScene）
+     */
+    private void renderSkillCooldownBar() {
+        float cooldownPercentage = skillCooldown;
+
+        // 从当前记录中获取技能冷却百分比
+        if (currentRecord != null) {
+            cooldownPercentage = currentRecord.getSkillCooldownPercent();
+        }
+
+        // 冷却条的位置和尺寸（根据地图尺寸800x600调整位置）
+        int barX = 610;
+        int barY = 10;
+
+        // 绘制"技能冷却"标签
+        renderer.drawText("技能冷却 (J)", barX + 10, barY + 10, 20, 1.0f, 1.0f, 1.0f, 1.0f);
+
+        // 绘制冷却条
+        int cooldownBarWidth = 140;
+        int cooldownBarHeight = 10;
+        int cooldownBarX = barX + 20;
+        int cooldownBarY = barY + 25;
+
+        // 根据冷却状态绘制冷却进度条
+        int filledWidth = (int) (cooldownBarWidth * cooldownPercentage);
+
+        if (cooldownPercentage >= 1.0f) {
+            // 冷却完成，绘制绿色条
+            renderer.drawRect(cooldownBarX, cooldownBarY + 10, filledWidth, cooldownBarHeight,
+                    0.0f, 1.0f, 0.0f, 1.0f);
+        } else {
+            // 冷却中，绘制黄色条
+            renderer.drawRect(cooldownBarX, cooldownBarY + 10, filledWidth, cooldownBarHeight,
+                    1.0f, 0.8f, 0.0f, 1.0f);
+        }
+
+        // 绘制百分比文字
+        String percentText = String.format("%.0f%%", cooldownPercentage * 100);
+        renderer.drawText(percentText, barX + 165, barY + 35, 12, 1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     @Override
@@ -119,290 +200,229 @@ public class RecordingScene extends Scene {
             engine.setScene(new MenuScene(engine, "MainMenu"));
             return;
         }
-        
-        // 累加时间
-        accumulatedTime += deltaTime;
-        
-        // 当累计时间达到目标时间时，切换到下一帧
-        if (accumulatedTime >= targetTime && currentFrameIndex < moves.size() - 1) {
-            currentFrameIndex++;
-            loadFrame(currentFrameIndex);
+
+        if (records == null || records.isEmpty()) {
+            return;
         }
         
-        // 如果已经播放完所有帧，可以选择循环或停止
-        if (currentFrameIndex >= moves.size() - 1) {
-            // 循环播放
-            currentFrameIndex = 0;
+        // 更新相机位置跟随玩家
+        if (camera != null && playerWorldPosition != null) {
+            camera.follow(playerWorldPosition, deltaTime);
+        }
+
+        // 累加时间（从回放开始到现在的时间）
+        accumulatedTime += deltaTime;
+
+        // 根据录制时的绝对时间戳推进回放
+        while (currentFrameIndex < records.size()) {
+            Record nextRecord = records.get(currentFrameIndex);
+            float scheduledTime = nextRecord.getKey() - startTime;
+
+            if (accumulatedTime >= scheduledTime) {
+                // 应用这一条记录（更新当前帧的对象列表）
+                currentRecord = nextRecord;
+                loadFrame(currentFrameIndex);
+                currentFrameIndex++;
+                System.out.println(currentFrameIndex);
+            } else {
+                break;
+            }
+        }
+
+        // 如果已经播放完所有帧，则从头开始循环
+        if (currentFrameIndex >= records.size()) {
             accumulatedTime = 0f;
-            loadFrame(0);
+            currentFrameIndex = 0;
+            currentRecord = null;
+            currentFrameObjects.clear();
         }
     }
-    
+
     /**
      * 加载指定索引的帧数据
      */
     private void loadFrame(int index) {
-        if (index < 0 || index >= moves.size()) {
+        if (index < 0 || index >= records.size()) {
+            return;
+        }
+
+        this.currentRecord = records.get(index);
+
+        // 解析 deltaTime
+        // float deltaIndex = this.currentRecord.getKey();
+
+        if ("input".equals(this.currentRecord.getType())) {
+            // 这里暂不处理，留作网络游戏的记录
+            return;
+        } else if ("object_move".equals(this.currentRecord.getType())) {
+            // 此处作为重新加载的核心点
+            List<GameObjectRecord> list = this.currentRecord.getGameObjectsMove();
+            currentFrameObjects = (list != null) ? new ArrayList<>(list)
+                    : new ArrayList<>();
+            
+            // 从当前帧数据中查找玩家位置，用于摄像头跟随
+            updatePlayerPosition();
+        }
+
+    }
+    
+    /**
+     * 从当前帧对象中提取玩家位置
+     */
+    private void updatePlayerPosition() {
+        if (currentFrameObjects == null || currentFrameObjects.isEmpty()) {
             return;
         }
         
-        String frameData = moves.get(index);
-        
-        // 解析 deltaTime
-        int deltaIndex = frameData.indexOf("deltaTime=");
-        if (deltaIndex != -1) {
-            int semicolonIndex = frameData.indexOf(";", deltaIndex);
-            if (semicolonIndex != -1) {
-                String deltaTimeStr = frameData.substring(deltaIndex + 10, semicolonIndex);
-                targetTime = Float.parseFloat(deltaTimeStr);
-                currentFrameData = frameData.substring(semicolonIndex + 1);
-            }
-        }
-        
-        // 解析 PlayerHealth
-        int healthIndex = frameData.indexOf("PlayerHealth=");
-        if (healthIndex != -1) {
-            int semicolonIndex = frameData.indexOf(";", healthIndex);
-            if (semicolonIndex != -1) {
-                String healthStr = frameData.substring(healthIndex + 13, semicolonIndex);
-                try {
-                    playerHealth = Integer.parseInt(healthStr);
-                } catch (NumberFormatException e) {
-                    playerHealth = 100;
-                }
-            }
-        }
-        
-        // 解析 SkillCooldown
-        int cooldownIndex = frameData.indexOf("SkillCooldown=");
-        if (cooldownIndex != -1) {
-            int semicolonIndex = frameData.indexOf(";", cooldownIndex);
-            if (semicolonIndex != -1) {
-                String cooldownStr = frameData.substring(cooldownIndex + 14, semicolonIndex);
-                try {
-                    skillCooldown = Float.parseFloat(cooldownStr);
-                } catch (NumberFormatException e) {
-                    skillCooldown = 1.0f;
-                }
+        // 查找玩家对象（根据 identity 或 imagePath 判断）
+        for (GameObjectRecord obj : currentFrameObjects) {
+            if (obj.identity != null && obj.identity.contains("Player")) {
+                // 计算玩家中心位置（世界坐标）
+                float centerX = obj.x + obj.width / 2;
+                float centerY = obj.y + obj.height / 2;
+                playerWorldPosition = new Vector2(centerX, centerY);
+                break;
             }
         }
     }
-    
+
     /**
      * 渲染一帧的所有对象
      */
-    private void renderFrame(String frameData) {
-        // 按照 { } 分割每个游戏对象
-        String[] objects = frameData.split("\\}");
+    private void renderFrame(GameObjectRecord gameObjectRecord) {
+        if (gameObjectRecord.rt == null)
+            return;
         
-        for (String obj : objects) {
-            if (obj.trim().isEmpty() || !obj.contains("{")) {
-                continue;
-            }
-            
-            // 移除开头的 {
-            obj = obj.substring(obj.indexOf("{") + 1);
-            
-            // 解析对象属性
-            String[] properties = obj.split(",");
-            
-            String identity = "";
-            float x = 0, y = 0;
-            
-            for (String prop : properties) {
-                prop = prop.trim();
-                
-                if (prop.startsWith("GameIdentity=")) {
-                    identity = prop.substring(13);
-                } else if (prop.startsWith("TransformComponent=")) {
-                    String transformData = prop.substring(19);
-                    String[] coords = transformData.split("\\|");
-                    if (coords.length >= 2) {
-                        try {
-                            x = Float.parseFloat(coords[0]);
-                            y = Float.parseFloat(coords[1]);
-                        } catch (NumberFormatException e) {
-                            // 忽略解析错误
-                        }
-                    }
+        // 将世界坐标转换为屏幕坐标
+        Vector2 worldPos = new Vector2(gameObjectRecord.x, gameObjectRecord.y);
+        Vector2 screenPos = (camera != null) ? camera.worldToScreen(worldPos) : worldPos;
+        float screenX = screenPos.x;
+        float screenY = screenPos.y;
+
+        switch (gameObjectRecord.rt) {
+            case RECTANGLE:
+                // 对于玩家技能，使用与 AttackSkillJ 相同的箭头形状渲染
+                if ("Player Skill".equals(gameObjectRecord.identity)) {
+                    renderPlayerSkill(gameObjectRecord, screenX, screenY);
+                } else {
+                    renderer.drawRect(
+                            screenX,
+                            screenY,
+                            gameObjectRecord.width,
+                            gameObjectRecord.height,
+                            gameObjectRecord.r,
+                            gameObjectRecord.g,
+                            gameObjectRecord.b,
+                            gameObjectRecord.a);
                 }
-            }
-            
-            // 根据 identity 渲染不同的对象
-            if ("Player".equals(identity)) {
-                renderHuluBodyParts(x, y);
-            } else if ("Enemy".equals(identity)) {
-                renderEnemy(x, y);
-            } else if ("ImageEnemy".equals(identity)) {
-                // 解析图片敌人的额外数据
-                String imageData = "";
-                for (String prop : properties) {
-                    prop = prop.trim();
-                    if (prop.startsWith("RenderComponent=")) {
-                        imageData = prop.substring(16);
-                    }
-                }
-                renderImageEnemy(x, y, imageData);
-            } else if ("Player Skill".equals(identity)) {
-                renderPlayerSkill(x, y);
-            } else if ("Enemy Skill".equals(identity)) {
-                renderEnemySkill(x, y);
-            }
-            // 可以添加更多对象类型的渲染
+                break;
+            case CIRCLE:
+                renderer.drawCircle(
+                        screenX + gameObjectRecord.width / 2,
+                        screenY + gameObjectRecord.height / 2,
+                        gameObjectRecord.width / 2,
+                        gameObjectRecord.segments,
+                        gameObjectRecord.r,
+                        gameObjectRecord.g,
+                        gameObjectRecord.b,
+                        gameObjectRecord.a);
+                break;
+            case LINE:
+                renderer.drawLine(
+                        screenX,
+                        screenY,
+                        screenX + gameObjectRecord.width,
+                        screenY + gameObjectRecord.height,
+                        gameObjectRecord.r,
+                        gameObjectRecord.g,
+                        gameObjectRecord.b,
+                        gameObjectRecord.a);
+                break;
+            case IMAGE:
+                renderer.drawImage(
+                        gameObjectRecord.imagePath,
+                        screenX,
+                        screenY,
+                        gameObjectRecord.width,
+                        gameObjectRecord.height,
+                        gameObjectRecord.alpha);
+                // 为敌人渲染血条
+                renderEntityHealthBar(gameObjectRecord, screenX, screenY);
+                break;
+            case IMAGE_ROTATED:
+                renderer.drawImageRotated(
+                        gameObjectRecord.imagePath,
+                        screenX + gameObjectRecord.width / 2,
+                        screenY + gameObjectRecord.height / 2,
+                        gameObjectRecord.width,
+                        gameObjectRecord.height,
+                        gameObjectRecord.rotation,
+                        gameObjectRecord.alpha);
+                // 为敌人渲染血条
+                renderEntityHealthBar(gameObjectRecord, screenX, screenY);
+                break;
+            case TEXT:
+                // 文本类型暂不处理
+                break;
+            default:
+                break;
         }
     }
 
-    public LinkedList<String> getMoves() {
+    /**
+     * 为敌人渲染血条（使用屏幕坐标）
+     */
+    private void renderEntityHealthBar(GameObjectRecord record, float screenX, float screenY) {
+        // 只为敌人渲染血条
+        if (record.identity == null)
+            return;
+        if (!"Enemy".equals(record.identity))
+            return;
+        if (record.maxHealth <= 0)
+            return;
 
-        // 初始化 moves 列表
-        LinkedList<String> movesList = new LinkedList<>();
+        // 血条位于实体头顶上方（使用屏幕坐标）
+        float barWidth = record.width;
+        float barHeight = 4f;
+        float barX = screenX;
+        float barY = screenY - 10f;
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(recordingPath))) {
+        renderer.drawHealthBar(barX, barY, barWidth, barHeight, record.currentHealth, record.maxHealth);
+    }
 
+    /**
+     * 渲染玩家技能（J 技能）的箭头形状（使用屏幕坐标）
+     */
+    private void renderPlayerSkill(GameObjectRecord record, float screenX, float screenY) {
+        // 与 AttackSkillJ.renderBodyParts 中的形状保持一致
+        renderer.drawRect(screenX + 5f, screenY - 4f, 5f, 3f, 1.0f, 1.0f, 1.0f, 1.0f);
+        renderer.drawRect(screenX + 5f, screenY + 1f, 5f, 3f, 1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
+    /**
+     * 加载录像文件
+     */
+    public static LinkedList<Record> loadRecording(String filePath) throws IOException {
+        LinkedList<Record> records = new LinkedList<>();
+
+        Path path = Paths.get(filePath);
+
+        try (BufferedReader reader = Files.newBufferedReader(path)) {
             String line;
             while ((line = reader.readLine()) != null) {
-                System.out.println(line);
-                movesList.add(line);
+                line = line.trim();
+                if (line.isEmpty())
+                    continue;
+                try {
+                    Record record = gson.fromJson(line, Record.class);
+                    records.add(record);
+                } catch (Exception e) {
+                    System.err.println("无法解析这一行: " + line);
+                }
             }
-        } catch (IOException e) {
-            e.printStackTrace();
         }
 
-        return movesList;
-
-    }
-
-    private void renderHuluBodyParts(float x, float y) {
-        // 使用图片渲染葫芦娃
-        float imageWidth = 40f;
-        float imageHeight = 50f;
-        String imagePath = "resources/picture/huluBro1.png";
-        
-        renderer.drawImage(
-            imagePath,
-            x - imageWidth / 2,
-            y - imageHeight / 2,
-            imageWidth,
-            imageHeight,
-            1.0f
-        );
-    }
-    
-    /**
-     * 渲染敌人士兵
-     */
-    private void renderEnemy(float x, float y) {
-        // 躯干（制服）
-        renderer.drawRect(x - 8f, y - 2f, 16f, 20f, 0.12f, 0.40f, 0.18f, 1f);
-
-        // 头部
-        renderer.drawCircle(x, y - 14f, 6f, 24, 1.0f, 0.86f, 0.72f, 1.0f);
-
-        // 头盔
-        renderer.drawRect(x - 7f, y - 19f, 14f, 6f, 0.10f, 0.30f, 0.12f, 1.0f);
-        renderer.drawRect(x - 7f, y - 14f, 14f, 2f, 0.08f, 0.25f, 0.10f, 1.0f);
-
-        // 眼睛
-        renderer.drawCircle(x - 2.0f, y - 14.0f, 0.8f, 12, 0f, 0f, 0f, 1f);
-        renderer.drawCircle(x + 2.0f, y - 14.0f, 0.8f, 12, 0f, 0f, 0f, 1f);
-
-        // 手臂（制服）
-        renderer.drawRect(x - 14f, y - 2f, 6f, 14f, 0.12f, 0.40f, 0.18f, 1f);
-        renderer.drawRect(x + 8f, y - 2f, 6f, 14f, 0.12f, 0.40f, 0.18f, 1f);
-
-        // 腰带
-        renderer.drawRect(x - 8f, y + 6f, 16f, 2f, 0.05f, 0.05f, 0.05f, 1f);
-
-        // 腿（裤子）
-        renderer.drawRect(x - 6f, y + 12f, 6f, 12f, 0.10f, 0.35f, 0.15f, 1f);
-        renderer.drawRect(x + 0f, y + 12f, 6f, 12f, 0.10f, 0.35f, 0.15f, 1f);
-
-        // 靴子
-        renderer.drawRect(x - 6f, y + 22f, 6f, 3f, 0f, 0f, 0f, 1f);
-        renderer.drawRect(x + 0f, y + 22f, 6f, 3f, 0f, 0f, 0f, 1f);
-
-        // 步枪
-        renderer.drawRect(x + 12f, y - 2f, 14f, 2f, 0.1f, 0.1f, 0.1f, 1f);
-        renderer.drawRect(x + 12f, y + 0f, 3f, 6f, 0.1f, 0.1f, 0.1f, 1f);
-    }
-    
-    /**
-     * 渲染玩家技能
-     */
-    private void renderPlayerSkill(float x, float y) {
-        // 渲染箭头形状的攻击技能（白色）
-        renderer.drawRect(x + 5f, y - 4f, 5f, 3f, 1.0f, 1.0f, 1.0f, 1.0f);
-        renderer.drawRect(x + 5f, y + 1f, 5f, 3f, 1.0f, 1.0f, 1.0f, 1.0f);
-    }
-    
-    /**
-     * 渲染敌人技能
-     */
-    private void renderEnemySkill(float x, float y) {
-        // 渲染箭头形状的攻击技能（红色）
-        renderer.drawRect(x - 10f, y - 1f, 14f, 3f, 1.0f, 0.0f, 0.0f, 1f);
-        renderer.drawRect(x + 5f, y - 4f, 5f, 3f, 1.0f, 0.0f, 0.0f, 1f);
-        renderer.drawRect(x + 5f, y + 1f, 5f, 3f, 1.0f, 0.0f, 0.0f, 1f);
-        renderer.drawRect(x + 7f, y - 2f, 3f, 2f, 1.0f, 0.0f, 0.0f, 1f);
-        renderer.drawRect(x + 7f, y + 1f, 3f, 2f, 1.0f, 0.0f, 0.0f, 1f);
-    }
-    
-    /**
-     * 渲染图片敌人
-     * 使用 PNG 图片进行渲染
-     * 
-     * @param x 位置 x 坐标
-     * @param y 位置 y 坐标
-     * @param imageData 图片数据字符串，格式: "imagePath|width|height|rotation|alpha"
-     */
-    private void renderImageEnemy(float x, float y, String imageData) {
-        // 默认值
-        String imagePath = "images/enemy.png";
-        float width = 64f;
-        float height = 64f;
-        float rotation = 0f;
-        float alpha = 1.0f;
-        
-        // 解析图片数据
-        if (imageData != null && !imageData.isEmpty()) {
-            String[] parts = imageData.split("\\|");
-            if (parts.length >= 1 && !parts[0].isEmpty()) {
-                imagePath = parts[0];
-            }
-            if (parts.length >= 2) {
-                try {
-                    width = Float.parseFloat(parts[1]);
-                } catch (NumberFormatException e) { /* 使用默认值 */ }
-            }
-            if (parts.length >= 3) {
-                try {
-                    height = Float.parseFloat(parts[2]);
-                } catch (NumberFormatException e) { /* 使用默认值 */ }
-            }
-            if (parts.length >= 4) {
-                try {
-                    rotation = Float.parseFloat(parts[3]);
-                } catch (NumberFormatException e) { /* 使用默认值 */ }
-            }
-            if (parts.length >= 5) {
-                try {
-                    alpha = Float.parseFloat(parts[4]);
-                } catch (NumberFormatException e) { /* 使用默认值 */ }
-            }
-        }
-        
-        // 使用图片渲染
-        if (rotation != 0) {
-            // 带旋转的图片渲染
-            renderer.drawImageRotated(imagePath, x, y, width, height, rotation, alpha);
-        } else {
-            // 普通图片渲染（左上角坐标）
-            renderer.drawImage(imagePath, x - width/2, y - height/2, width, height, alpha);
-        }
-        
-        // 渲染血条（如果需要的话，可以从录制数据中获取血量）
-        // 这里使用默认满血显示
-        renderer.drawHealthBar(x - width/2, y - height/2 - 10f, width, 4f, 100, 100);
+        return records;
     }
 
 }

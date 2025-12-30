@@ -1,44 +1,12 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
-# 编译
-mkdir -p build/classes
-LWJGL_CP="."
-if [ -d "lib/lwjgl" ]; then
-  LWJGL_CP=".:lib/lwjgl/*"
-fi
-SOURCES=$(find src/main/java -type f -name "*.java")
-javac -d build/classes -cp "$LWJGL_CP" $SOURCES
+cd "$(dirname "$0")"
 
-LWJGL_DIR="lib/lwjgl"
-CLASSPATH="build/classes"
-if [ -d "$LWJGL_DIR" ]; then
-  CLASSPATH="$CLASSPATH:$LWJGL_DIR/*"
-fi
+mvn -q clean compile
+mvn dependency:build-classpath -Dmdep.outputFile=cp.txt -q
 
-OS="$(uname -s)"; ARCH_RAW="$(uname -m)"
-case "$OS" in
-  Darwin*) OS_ID="macos";;
-  Linux*) OS_ID="linux";;
-  MINGW*|MSYS*|CYGWIN*|Windows*) OS_ID="windows";;
-  *) OS_ID="";;
-esac
-case "$ARCH_RAW" in
-  arm64|aarch64) ARCH_ID="arm64";;
-  x86_64) ARCH_ID="x86_64";;
-  *) ARCH_ID="";;
-esac
+echo "使用渲染后端: GPU (Client)"
 
-JAVA_FLAGS=""
-if [ -n "$OS_ID" ] && [ -n "$ARCH_ID" ] && [ -d "$LWJGL_DIR/natives/${OS_ID}-${ARCH_ID}" ]; then
-  JAVA_FLAGS="-Dorg.lwjgl.librarypath=$LWJGL_DIR/natives/${OS_ID}-${ARCH_ID}"
-fi
-
-HOST="${1:-127.0.0.1}"
-if [[ "$OS" == Darwin* ]]; then
-  exec java -XstartOnFirstThread $JAVA_FLAGS -cp "$CLASSPATH" com.gameengine.example.ClientLauncher "$HOST"
-else
-  exec java $JAVA_FLAGS -cp "$CLASSPATH" com.gameengine.example.ClientLauncher "$HOST"
-fi
-
-
+CP="target/classes:$(cat cp.txt)"
+java -XstartOnFirstThread -cp "$CP" com.gameengine.app.ClientGameLauncher

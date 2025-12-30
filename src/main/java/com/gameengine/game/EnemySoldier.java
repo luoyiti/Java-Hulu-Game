@@ -4,7 +4,10 @@ import com.gameengine.components.*;
 import com.gameengine.core.GameObject;
 import com.gameengine.graphics.IRenderer;
 import com.gameengine.math.Vector2;
+import com.gameengine.scene.Scene;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 
 /**
@@ -13,13 +16,78 @@ import java.util.Random;
  */
 public class EnemySoldier extends GameObject {
     
+    /**
+     * 士兵攻击技能内部类
+     * 封装了冰球技能的所有行为
+     */
+    private class AttackSkill extends GameObject {
+        private static final String SKILL_IMAGE_PATH = "resources/picture/iceball.png";
+        private static final float ROTATION_EPSILON = 0.001f;
+        // 技能大小
+        private final Vector2 skillSize = new Vector2(20, 20);
+        
+        public AttackSkill(int index, Vector2 position) {
+            super("EnemySoldier Attacking Skill " + index);
+            this.setEnemySkill();
+            
+            this.addComponent(new TransformComponent(position));
+            
+            RenderComponent render = this.addComponent(new RenderComponent(SKILL_IMAGE_PATH, skillSize));
+            render.setRenderer(renderer);
+            
+            PhysicsComponent physics = this.addComponent(new PhysicsComponent(0.5f));
+            physics.setVelocity(new Vector2(
+                (random.nextFloat() - 0.5f) * 150,
+                (random.nextFloat() - 0.5f) * 150
+            ));
+            physics.setFriction(0.98f);
+            
+            // 添加生命周期组件，设置3秒生命周期以延长移动距离
+            LifeFeatureComponent lifeFeature = this.addComponent(new LifeFeatureComponent(1));
+            lifeFeature.setLifetime(3.0f);
+        }
+        
+        @Override
+        public void update(float deltaTime) {
+            super.update(deltaTime);
+            updateComponents(deltaTime);
+            updateRotationFromVelocity();
+        }
+        
+        @Override
+        public void render() {
+            RenderComponent render = getComponent(RenderComponent.class);
+            if (render != null) {
+                render.render();
+            }
+        }
+        
+        private void updateRotationFromVelocity() {
+            PhysicsComponent physics = getComponent(PhysicsComponent.class);
+            RenderComponent render = getComponent(RenderComponent.class);
+            if (physics == null || render == null) {
+                return;
+            }
+
+            Vector2 velocity = physics.getVelocity();
+            if (velocity.magnitude() > ROTATION_EPSILON) {
+                render.setRotation(velocity.angle());
+            }
+        }
+    }
+    
     private IRenderer renderer;
+    private Scene scene;
+    private Random random;
+    private List<GameObject> attackingSkills = new ArrayList<>();
     private String imagePath;
     private Vector2 imageSize;
     
-    public EnemySoldier(IRenderer renderer, Vector2 position, String imagePath, Vector2 imageSize, Random random) {
+    public EnemySoldier(IRenderer renderer, Scene scene, Vector2 position, String imagePath, Vector2 imageSize, Random random) {
         super("EnemySoldier");
         this.renderer = renderer;
+        this.scene = scene;
+        this.random = random;
         this.imagePath = imagePath;
         this.imageSize = imageSize;
         this.setEnemy();
@@ -47,6 +115,9 @@ public class EnemySoldier extends GameObject {
     public void update(float deltaTime) {
         super.update(deltaTime);
         updateComponents(deltaTime);
+        if (attackingSkills.isEmpty()) {
+            initAttackingSkills();
+        }
     }
     
     @Override
@@ -62,6 +133,87 @@ public class EnemySoldier extends GameObject {
         if (lifeFeature != null) {
             lifeFeature.render();
         }
+    }
+    
+    /**
+     * 初始化攻击技能
+     * 创建1个冰球技能对象
+     */
+    public void initAttackingSkills() {
+        TransformComponent soldierTransform = getComponent(TransformComponent.class);
+        Vector2 soldierPosition = soldierTransform.getPosition();
+        
+        // 只创建1个冰球技能
+        Vector2 position = new Vector2(soldierPosition.x, soldierPosition.y);
+        // 使用内部类创建技能
+        AttackSkill attackingSkill = new AttackSkill(0, position);
+        
+        this.attackingSkills.add(attackingSkill);
+        scene.addGameObject(attackingSkill);
+    }
+    
+    /**
+     * 获取攻击技能列表
+     */
+    public List<GameObject> getAttackingSkills() {
+        return this.attackingSkills;
+    }
+
+    /**
+     * 释放士兵技能（向玩家方向发射冰球）
+     * @param playerPosition 玩家位置
+     */
+    public boolean releaseAttackSkills(Vector2 playerPosition) {
+        if (attackingSkills.isEmpty()) {
+            initAttackingSkills();
+        }
+
+        if (attackingSkills.isEmpty() || playerPosition == null) {
+            return false;
+        }
+
+        TransformComponent soldierTransform = getComponent(TransformComponent.class);
+        if (soldierTransform == null) {
+            return false;
+        }
+
+        Vector2 soldierPosition = soldierTransform.getPosition();
+        boolean released = false;
+
+        // 只发射一个冰球，向玩家方向
+        if (!attackingSkills.isEmpty()) {
+            GameObject attackingSkill = attackingSkills.get(0);
+            TransformComponent skillTransform = attackingSkill.getComponent(TransformComponent.class);
+            PhysicsComponent skillPhysics = attackingSkill.getComponent(PhysicsComponent.class);
+
+            if (skillTransform != null && skillPhysics != null) {
+                // 设置冰球起始位置为士兵位置
+                skillTransform.setPosition(new Vector2(soldierPosition.x, soldierPosition.y));
+
+                // 计算朝向玩家的方向向量
+                Vector2 direction = new Vector2(
+                    playerPosition.x - soldierPosition.x,
+                    playerPosition.y - soldierPosition.y
+                );
+                
+                if (direction.magnitude() > 0) {
+                    direction = direction.normalize();
+                    // 设置更高的速度以延长移动距离
+                    skillPhysics.setVelocity(direction.multiply(250));
+                    // 降低摩擦力以延长移动距离
+                    skillPhysics.setFriction(0.99f);
+                }
+
+                LifeFeatureComponent lifeFeature = attackingSkill.getComponent(LifeFeatureComponent.class);
+                if (lifeFeature != null) {
+                    lifeFeature.resetLifetime();
+                }
+
+                released = true;
+            }
+        }
+
+        return released;
     }
 
     /**

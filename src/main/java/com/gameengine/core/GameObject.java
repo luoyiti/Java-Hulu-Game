@@ -2,7 +2,10 @@ package com.gameengine.core;
 
 import com.gameengine.components.LifeFeatureComponent;
 import com.gameengine.components.RenderComponent;
+import com.gameengine.components.TransformComponent;
 import com.gameengine.math.Vector2;
+import com.gameengine.game.GameObjectRecord;
+import com.gameengine.scene.Scene;
 import java.util.*;
 
 /**
@@ -13,48 +16,51 @@ public class GameObject {
     protected String name;
     protected String identity = "None";
     protected final List<Component<?>> components;
+    protected Scene scene; // 所属场景的引用
     public String MovingSteps;
     LinkedHashMap<String, String> MovingStepsMap;
-    
+
     public GameObject() {
         this.active = true;
         this.name = "GameObject";
         this.components = new ArrayList<>();
         this.MovingSteps = "";
-        this.MovingStepsMap = new LinkedHashMap<String, String>() {{
-            put("GameIdentity", "");
-            put("PhysicsComponent", "");
-            put("RenderComponent", "");  // 用于记录图片敌人的渲染信息
-            put("TransformComponent", "");
-        }};
+        this.MovingStepsMap = new LinkedHashMap<String, String>() {
+            {
+                put("GameIdentity", "");
+                put("PhysicsComponent", "");
+                put("RenderComponent", ""); // 用于记录图片敌人的渲染信息
+                put("TransformComponent", "");
+            }
+        };
     }
-    
+
     public GameObject(String name) {
         this();
         this.name = name;
     }
-    
+
     /**
      * 更新游戏对象逻辑
      */
     public void update(float deltaTime) {
         updateComponents(deltaTime);
     }
-    
+
     /**
      * 渲染游戏对象
      */
     public void render() {
         renderComponents();
     }
-    
+
     /**
      * 初始化游戏对象
      */
     public void initialize() {
         // 子类可以重写此方法进行初始化
     }
-    
+
     /**
      * 销毁游戏对象
      */
@@ -66,7 +72,7 @@ public class GameObject {
         }
         components.clear();
     }
-    
+
     /**
      * 添加组件
      */
@@ -76,7 +82,7 @@ public class GameObject {
         component.initialize();
         return component;
     }
-    
+
     /**
      * 获取组件
      */
@@ -93,39 +99,89 @@ public class GameObject {
     /**
      * 获取所有组件记录
      */
-    public String getRecords() {
-        StringBuilder records = new StringBuilder();
+    public GameObjectRecord getRecords() {
+
+        GameObjectRecord record = new GameObjectRecord();
+        record.id = this.name;
+        record.identity = this.identity; // 记录对象身份
+
         for (Component<?> component : components) {
-            // 生命组件暂时无需记录
-            if (component.getComponentType() == LifeFeatureComponent.class) continue;
-            
-            // 对于 ImageEnemy，需要记录 RenderComponent 的图片信息
-            if (component.getComponentType() == RenderComponent.class) {
-                // 如果是图片敌人，则记录渲染组件
-                if ("ImageEnemy".equals(this.identity)) {
-                    String recordLine = component.record();
-                    if (!recordLine.isEmpty()) {
-                        records.append(recordLine);
-                    }
-                    MovingStepsMap.put(component.getComponentType().getSimpleName(), recordLine);
-                }
+            // 记录生命组件信息（血量）
+            if (component.getComponentType() == LifeFeatureComponent.class) {
+                LifeFeatureComponent lifeFeature = (LifeFeatureComponent) component;
+                record.currentHealth = lifeFeature.getBlood();
+                record.maxHealth = 100; // 默认最大血量为100
                 continue;
             }
 
-            // 组件不完整，则不记录
-            if (!component.isEnabled()) return "";
+            // 对于图形组件，需要记录 RenderComponent 的图片信息
+            if (component.getComponentType() == RenderComponent.class) {
+                RenderComponent renderComp = (RenderComponent) component;
+                record.rt = renderComp.getRenderType();
+                record.height = renderComp.getSize().y;
+                record.width = renderComp.getSize().x;
+                record.alpha = renderComp.getAlpha();
 
-            String recordLine = component.record();
-            if (!recordLine.isEmpty()) {
-                records.append(recordLine);
+                // 记录颜色信息
+                if (renderComp.getColor() != null) {
+                    record.r = renderComp.getColor().r;
+                    record.g = renderComp.getColor().g;
+                    record.b = renderComp.getColor().b;
+                    record.a = renderComp.getColor().a;
+                }
+
+                if (renderComp.getRenderType() == RenderComponent.RenderType.IMAGE) {
+                    record.imagePath = renderComp.getImagePath();
+                }
+
+                continue;
             }
 
-            MovingStepsMap.put(component.getComponentType().getSimpleName(), recordLine);
+            // 对于物理组件，需要记录位置信息
+            if (component.getComponentType() == TransformComponent.class) {
+                record.x = ((TransformComponent) component).getPosition().x;
+                record.y = ((TransformComponent) component).getPosition().y;
+
+                continue;
+            }
         }
-        MovingStepsMap.put("GameIdentity", this.identity);
-        return MovingStepsMap.toString();
+
+        return record;
+
+        // StringBuilder records = new StringBuilder();
+
+        // for (Component<?> component : components) {
+        // // 生命组件暂时无需记录
+        // if (component.getComponentType() == LifeFeatureComponent.class) continue;
+
+        // // 对于 ImageEnemy，需要记录 RenderComponent 的图片信息
+        // if (component.getComponentType() == RenderComponent.class) {
+        // // 如果是图片敌人，则记录渲染组件
+        // if ("ImageEnemy".equals(this.identity)) {
+        // String recordLine = component.record();
+        // if (!recordLine.isEmpty()) {
+        // records.append(recordLine);
+        // }
+        // MovingStepsMap.put(component.getComponentType().getSimpleName(), recordLine);
+        // }
+        // continue;
+        // }
+
+        // // 组件不完整，则不记录
+        // if (!component.isEnabled()) return "";
+
+        // String recordLine = component.record();
+        // if (!recordLine.isEmpty()) {
+        // records.append(recordLine);
+        // }
+
+        // MovingStepsMap.put(component.getComponentType().getSimpleName(), recordLine);
+        // }
+        // MovingStepsMap.put("GameIdentity", this.identity);
+        // return MovingStepsMap.toString();
+
     }
-    
+
     /**
      * 检查是否有指定类型的组件
      */
@@ -137,7 +193,7 @@ public class GameObject {
         }
         return false;
     }
-    
+
     /**
      * 更新所有组件
      */
@@ -148,7 +204,7 @@ public class GameObject {
             }
         }
     }
-    
+
     /**
      * 渲染所有组件
      */
@@ -159,19 +215,27 @@ public class GameObject {
             }
         }
     }
-    
+
     // 取值与设置方法
-    
+
     public boolean isActive() {
         return active;
     }
-    
+
     public void setActive(boolean active) {
         this.active = active;
     }
-    
+
     public String getName() {
         return name;
+    }
+
+    public Scene getScene() {
+        return scene;
+    }
+
+    public void setScene(Scene scene) {
+        this.scene = scene;
     }
 
     public String getidentity() {
@@ -193,11 +257,11 @@ public class GameObject {
     public void setEnemySkill() {
         this.identity = "Enemy Skill";
     }
-    
+
     public void setImageEnemy() {
         this.identity = "ImageEnemy";
     }
-    
+
     public void setName(String name) {
         this.name = name;
     }

@@ -1,0 +1,183 @@
+@startuml overall_object
+title Game Engine Architecture (Core Classes)
+
+' Academic-friendly, low-density diagram:
+' - only core classes and key dependencies
+' - most details moved to notes
+
+' -------------------- Global style --------------------
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam linetype ortho
+skinparam roundcorner 10
+skinparam packageStyle rectangle
+skinparam classAttributeIconSize 0
+
+' Font tuning (reduce overlap)
+skinparam defaultFontName "Helvetica"
+skinparam defaultFontSize 12
+skinparam packageFontSize 13
+skinparam titleFontSize 16
+skinparam classFontSize 12
+skinparam noteFontSize 11
+
+' Spacing tuning
+skinparam nodesep 45
+skinparam ranksep 55
+
+skinparam ArrowColor #4A5568
+skinparam ArrowThickness 1
+skinparam ClassBorderColor #2D3748
+skinparam ClassBackgroundColor #F7FAFC
+skinparam ClassFontColor #1A202C
+
+hide methods
+hide fields
+
+left to right direction
+
+' ======================================================
+' Runtime core
+' ======================================================
+package "core" as core #E6FFFA {
+  class GameEngine
+  class GameLogic
+  class GameObject
+  abstract class Component
+  class Camera
+}
+
+package "scene" as scene #EBF8FF {
+  class Scene
+}
+
+package "input" as input #F0FFF4 {
+  class InputManager <<singleton>>
+}
+
+package "graphics" as graphics #FAF5FF {
+  interface IRenderer
+  class GPURenderer
+  class RendererFactory
+  enum RenderBackend
+}
+
+' ======================================================
+' Key systems used by the main single-player scene
+' ======================================================
+package "level" as level #FFFFF0 {
+  class LevelManager
+  class EnemyFactory
+}
+
+package "ui" as ui #F7FAFC {
+  class GameUIManager
+}
+
+package "dialogue" as dialogue #EDF2F7 {
+  class DialogueConfigurator
+  class DialogueManager <<singleton>>
+  class DialogueNode
+}
+
+package "net" as net #F0F5FF {
+  class MultiReactor
+  class NioClient
+  class NetState <<static>>
+  class NetworkBuffer <<static>>
+}
+
+package "recording" as recording #F8F9FA {
+  class Record
+}
+
+package "app" as app #EDE9FE {
+  class Game
+  class GameScene
+  class OnlineGameScene
+  class RecordingScene
+}
+
+' -------------------- Core loop --------------------
+Game --> GameEngine
+GameEngine --> Scene : currentScene
+GameEngine o-- IRenderer : renderer
+GameEngine --> InputManager
+
+Scene o-- "*" GameObject
+Scene --> Camera
+
+GameObject o-- "*" Component
+Component --> GameObject : owner
+
+GameScene --|> Scene
+GameScene --> GameLogic
+GameScene --> LevelManager
+GameScene --> GameUIManager
+GameScene --> DialogueConfigurator
+
+GameLogic --> Scene
+GameLogic --> InputManager
+
+' -------------------- Rendering abstraction --------------------
+GPURenderer ..|> IRenderer
+RendererFactory ..> RenderBackend
+RendererFactory ..> IRenderer : create()
+
+' -------------------- Level generation --------------------
+LevelManager --> EnemyFactory
+EnemyFactory ..> Scene
+EnemyFactory ..> GameLogic
+EnemyFactory ..> IRenderer
+
+' -------------------- Dialogue system --------------------
+DialogueConfigurator --> DialogueManager
+DialogueManager o-- "0..1" DialogueNode : current
+DialogueNode --> DialogueNode : next
+
+' -------------------- Networking (overview) --------------------
+OnlineGameScene --|> Scene
+OnlineGameScene --> MultiReactor : server
+OnlineGameScene --> NioClient : client
+OnlineGameScene --> NetState
+OnlineGameScene --> NetworkBuffer : interpolate
+
+NetState o-- "0..1" Record : snapshot
+NetworkBuffer ..> Record
+
+' -------------------- Recording / replay (overview) --------------------
+RecordingScene --|> Scene
+RecordingScene ..> Record : read (replay)
+GameScene ..> Record : write (record)
+
+' -------------------- Notes (replace crowded class enumeration) --------------------
+note right of GameObject
+  Subclasses include:
+  - HuluPlayer
+  - EnemySoldier / EnemyWizard / EnemyKing
+  - AttackSkillJ, etc.
+end note
+
+note bottom of Component
+  Main components:
+  Transform / Physics / Render / LifeFeature
+  (ECS-like composition)
+end note
+
+note bottom of NetworkBuffer
+  Client-side interpolation buffer
+  (reduces jitter under latency)
+end note
+
+note bottom of MultiReactor
+  Internals:
+  MainReactor + SubReactors
+  (reactor pattern for concurrency)
+end note
+
+' Layout anchors (keep boxes separated)
+core.GameEngine -[hidden]- graphics.IRenderer
+scene.Scene -[hidden]- level.LevelManager
+dialogue.DialogueManager -[hidden]- net.MultiReactor
+
+@enduml

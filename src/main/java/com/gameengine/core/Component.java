@@ -2,34 +2,36 @@ package com.gameengine.core;
 
 /**
  * 组件基类，使用泛型设计
+ * 
  * @param <T> 组件类型
  */
 public abstract class Component<T extends Component<T>> {
     protected GameObject owner;
     protected boolean enabled;
     protected String name;
-    
+
     public Component() {
         this.enabled = true;
         this.name = this.getClass().getSimpleName();
     }
-    
+
     /**
      * 初始化组件
      */
     public abstract void initialize();
-    
+
     /**
      * 更新组件
+     * 
      * @param deltaTime 时间间隔
      */
     public abstract void update(float deltaTime);
-    
+
     /**
      * 渲染组件
      */
     public abstract void render();
-    
+
     /**
      * 销毁组件
      */
@@ -44,7 +46,7 @@ public abstract class Component<T extends Component<T>> {
         // 默认不实现录制功能，子类可重写
         return "";
     }
-    
+
     /**
      * 获取组件类型
      */
@@ -52,28 +54,28 @@ public abstract class Component<T extends Component<T>> {
     public Class<T> getComponentType() {
         return (Class<T>) this.getClass();
     }
-    
+
     // 取值与设置方法
     public GameObject getOwner() {
         return owner;
     }
-    
+
     public void setOwner(GameObject owner) {
         this.owner = owner;
     }
-    
+
     public boolean isEnabled() {
         return enabled;
     }
-    
+
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
     }
-    
+
     public String getName() {
         return name;
     }
-    
+
     public void setName(String name) {
         this.name = name;
     }

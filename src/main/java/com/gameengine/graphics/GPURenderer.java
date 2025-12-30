@@ -59,7 +59,9 @@ public class GPURenderer implements IRenderer {
         this.window = 0;
         this.charTextures = new HashMap<>();
         this.imageTextures = new HashMap<>();
-        this.font = new Font(Font.MONOSPACED, Font.BOLD, 32);
+        // 使用支持中文的字体：Dialog 是 Java 的逻辑字体，会映射到系统默认字体
+        // 在 macOS 上会自动使用 PingFang SC 或其他支持中文的字体
+        this.font = new Font("Dialog", Font.BOLD, 32);
         this.fontSize = 32;
         this.texturesPreloaded = false;
 
@@ -813,4 +815,3 @@ public class GPURenderer implements IRenderer {
         return title;
     }
 }
-

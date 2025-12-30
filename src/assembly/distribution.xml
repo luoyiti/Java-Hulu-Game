@@ -1,0 +1,63 @@
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.2.0 http://maven.apache.org/xsd/assembly-2.2.0.xsd">
+    
+    <id>dist</id>
+    <formats>
+        <format>zip</format>
+    </formats>
+    
+    <includeBaseDirectory>true</includeBaseDirectory>
+    <baseDirectory>HuluwaGame</baseDirectory>
+    
+    <fileSets>
+        <!-- 包含启动脚本 -->
+        <fileSet>
+            <directory>${project.basedir}/scripts</directory>
+            <outputDirectory>/</outputDirectory>
+            <includes>
+                <include>*.sh</include>
+                <include>*.bat</include>
+                <include>*.command</include>
+            </includes>
+            <fileMode>0755</fileMode>
+        </fileSet>
+        
+        <!-- 包含资源文件 -->
+        <fileSet>
+            <directory>${project.basedir}/resources</directory>
+            <outputDirectory>/resources</outputDirectory>
+            <includes>
+                <include>**/*</include>
+            </includes>
+        </fileSet>
+        
+        <!-- 包含录像目录(空目录) -->
+        <fileSet>
+            <directory>${project.basedir}/recordings</directory>
+            <outputDirectory>/recordings</outputDirectory>
+            <excludes>
+                <exclude>**/*</exclude>
+            </excludes>
+        </fileSet>
+        
+        <!-- 包含README -->
+        <fileSet>
+            <directory>${project.basedir}/scripts</directory>
+            <outputDirectory>/</outputDirectory>
+            <includes>
+                <include>README.md</include>
+            </includes>
+        </fileSet>
+    </fileSets>
+    
+    <files>
+        <!-- 包含打包后的jar文件 -->
+        <file>
+            <source>${project.build.directory}/${project.artifactId}-${project.version}.jar</source>
+            <outputDirectory>/lib</outputDirectory>
+            <destName>HuluwaGame.jar</destName>
+        </file>
+    </files>
+    
+</assembly>

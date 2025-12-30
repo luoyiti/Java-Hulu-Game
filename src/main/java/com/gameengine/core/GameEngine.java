@@ -1,7 +1,7 @@
 package com.gameengine.core;
 
 import com.gameengine.app.GameScene;
-import com.gameengine.app.OnlineScene;
+import com.gameengine.app.OnlineGameScene;
 import com.gameengine.graphics.IRenderer;
 import com.gameengine.graphics.RenderBackend;
 import com.gameengine.graphics.RendererFactory;
@@ -22,7 +22,7 @@ public class GameEngine {
     @SuppressWarnings("unused")
     private String title;
     private GamePerformance gamePerformance;
-    
+
     public GameEngine(int width, int height, String title, RenderBackend backend) {
         this.title = title;
         this.renderer = RendererFactory.createRenderer(backend, width, height, title);
@@ -32,16 +32,16 @@ public class GameEngine {
         this.deltaTime = 0.0f;
         this.lastTime = System.nanoTime();
         this.gamePerformance = new GamePerformance();
-        
+
     }
-    
+
     /**
      * 初始化游戏引擎
      */
     public boolean initialize() {
         return true; // Swing渲染器不需要特殊初始化
     }
-    
+
     /**
      * 运行游戏引擎
      */
@@ -50,20 +50,20 @@ public class GameEngine {
             System.err.println("游戏引擎初始化失败");
             return;
         }
-        
+
         running = true;
-        
+
         if (currentScene != null) {
             currentScene.initialize();
-            
+
         }
-        
+
         long lastFrameTime = System.nanoTime();
-        long frameTimeNanos = (long)(1_000_000_000.0 / targetFPS);
-        
+        long frameTimeNanos = (long) (1_000_000_000.0 / targetFPS);
+
         while (running) {
             long currentTime = System.nanoTime();
-            
+
             if (currentTime - lastFrameTime >= frameTimeNanos) {
                 update();
                 if (running) {
@@ -71,19 +71,23 @@ public class GameEngine {
                 }
                 lastFrameTime = currentTime;
             }
-            
+
             if (renderer.shouldClose()) {
                 running = false;
             }
-            
+
             try {
                 Thread.sleep(1);
             } catch (InterruptedException e) {
                 break;
             }
         }
+        
+        // 游戏循环结束后清理资源
+        gamePerformance.printSummary();
+        cleanup();
     }
-    
+
     /**
      * 更新游戏逻辑
      */
@@ -95,18 +99,18 @@ public class GameEngine {
 
         // 计算游戏帧率
         gamePerformance.update(deltaTime);
-        
+
         // 处理事件（先处理输入事件）
         renderer.pollEvents();
-        
+
         // 更新场景
         if (currentScene != null) {
             currentScene.update(deltaTime);
         }
-        
+
         // 清除输入状态（在场景update之后）
         inputManager.update();
-        
+
         // 检查退出条件（支持多种ESC键码）
         if (inputManager.isKeyPressed(27) || inputManager.isKeyPressed(256)) { // ESC键（27=传统码，256=GLFW码）
             // running = false;
@@ -114,20 +118,20 @@ public class GameEngine {
             // renderer.cleanup();
             // 将退出逻辑转移到GameScene中处理
         }
-        
+
         // 检查窗口是否关闭
         if (renderer.shouldClose()) {
             running = false;
             gamePerformance.printSummary(); // 打印平均帧率统计
         }
     }
-    
+
     /**
      * 渲染游戏
      */
     private void render() {
         renderer.beginFrame();
-        
+
         // 渲染场景
         if (currentScene != null) {
             currentScene.render();
@@ -136,13 +140,13 @@ public class GameEngine {
         // 渲染帧率
         if (currentScene instanceof GameScene) {
             gamePerformance.render(renderer);
-        } else if (currentScene instanceof OnlineScene) {
+        } else if (currentScene instanceof OnlineGameScene) {
             gamePerformance.render(renderer);
         }
-        
+
         renderer.endFrame();
     }
-    
+
     /**
      * 设置当前场景
      */
@@ -152,14 +156,14 @@ public class GameEngine {
             scene.initialize();
         }
     }
-    
+
     /**
      * 获取当前场景
      */
     public Scene getCurrentScene() {
         return currentScene;
     }
-    
+
     /**
      * 停止游戏引擎
      */
@@ -177,7 +181,7 @@ public class GameEngine {
         cleanup();
         System.exit(0);
     }
-    
+
     /**
      * 清理资源
      */
@@ -187,42 +191,42 @@ public class GameEngine {
         }
         renderer.cleanup();
     }
-    
+
     /**
      * 获取渲染器
      */
     public IRenderer getRenderer() {
         return renderer;
     }
-    
+
     /**
      * 获取输入管理器
      */
     public InputManager getInputManager() {
         return inputManager;
     }
-    
+
     /**
      * 获取时间间隔
      */
     public float getDeltaTime() {
         return deltaTime;
     }
-    
+
     /**
      * 设置目标帧率
      */
     public void setTargetFPS(float fps) {
         this.targetFPS = fps;
     }
-    
+
     /**
      * 获取目标帧率
      */
     public float getTargetFPS() {
         return targetFPS;
     }
-    
+
     /**
      * 检查引擎是否正在运行
      */

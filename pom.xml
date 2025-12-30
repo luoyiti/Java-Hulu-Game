@@ -13,15 +13,16 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <lwjgl.version>3.3.6</lwjgl.version>
-    <maven.compiler.source>11</maven.compiler.source>
-    <maven.compiler.target>11</maven.compiler.target>
+    <maven.compiler.source>21</maven.compiler.source>
+    <maven.compiler.target>21</maven.compiler.target>
+    <maven.compiler.release>21</maven.compiler.release>
   </properties>
 
   <dependencies>
     <dependency>
       <groupId>junit</groupId>
       <artifactId>junit</artifactId>
-      <version>3.8.1</version>
+      <version>4.13.2</version>
       <scope>test</scope>
     </dependency>
 
@@ -43,6 +44,30 @@
         <version>${lwjgl.version}</version>
         <classifier>natives-macos-arm64</classifier>
     </dependency>
+    <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-linux</classifier>
+    </dependency>
+    <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-linux-arm64</classifier>
+    </dependency>
+    <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-windows</classifier>
+    </dependency>
+    <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-windows-arm64</classifier>
+    </dependency>
 
     <!-- glfw -->
     <dependency>
@@ -61,6 +86,30 @@
         <artifactId>lwjgl-glfw</artifactId>
         <version>${lwjgl.version}</version>
         <classifier>natives-macos-arm64</classifier>
+    </dependency>
+    <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-glfw</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-linux</classifier>
+    </dependency>
+    <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-glfw</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-linux-arm64</classifier>
+    </dependency>
+    <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-glfw</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-windows</classifier>
+    </dependency>
+    <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-glfw</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-windows-arm64</classifier>
     </dependency>
 
     <!-- opengl -->
@@ -81,11 +130,105 @@
         <version>${lwjgl.version}</version>
         <classifier>natives-macos-arm64</classifier>
     </dependency>
+    <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-opengl</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-linux</classifier>
+    </dependency>
+    <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-opengl</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-linux-arm64</classifier>
+    </dependency>
+    <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-opengl</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-windows</classifier>
+    </dependency>
+    <dependency>
+        <groupId>org.lwjgl</groupId>
+        <artifactId>lwjgl-opengl</artifactId>
+        <version>${lwjgl.version}</version>
+        <classifier>natives-windows-arm64</classifier>
+    </dependency>
+
+    <!-- Gson JSON处理库 -->
+    <dependency>
+        <groupId>com.google.code.gson</groupId>
+        <artifactId>gson</artifactId>
+        <version>2.10.1</version>
+    </dependency>
+      <dependency>
+          <groupId>junit</groupId>
+          <artifactId>junit</artifactId>
+          <version>4.13.1</version>
+          <scope>test</scope>
+      </dependency>
 
   </dependencies>
 
   <build>
     <plugins>
+      <!-- Java编译插件 -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.11.0</version>
+        <configuration>
+          <release>21</release>
+          <encoding>UTF-8</encoding>
+        </configuration>
+      </plugin>
+      
+      <!-- JaCoCo 测试覆盖率插件 -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>0.8.12</version>
+        <configuration>
+          <!-- 仅对项目代码做插桩，避免在高版本 JDK 下对 JDK 类插桩失败 -->
+          <includes>
+            <include>com/gameengine/**</include>
+          </includes>
+          <excludes>
+            <!-- 排除需要图形上下文的包和类 -->
+            <exclude>com/gameengine/app/**</exclude>
+            <exclude>com/gameengine/graphics/**</exclude>
+            <exclude>com/gameengine/ui/GameUIManager.class</exclude>
+            <exclude>com/gameengine/core/GameEngine.class</exclude>
+          </excludes>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>test</phase>
+            <goals>
+              <goal>report</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      
+      <!-- 测试运行插件 -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+        <configuration>
+          <includes>
+            <include>**/*Test.java</include>
+          </includes>
+        </configuration>
+      </plugin>
+      
       <!-- 打包所有依赖到一个 jar -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
@@ -107,19 +250,53 @@
           </execution>
         </executions>
       </plugin>
-        <plugin>
-    <groupId>org.codehaus.mojo</groupId>
-    <artifactId>exec-maven-plugin</artifactId>
-    <version>3.1.0</version>
-    <configuration>
-        <mainClass>com.gameengine.app.Game</mainClass>
-        <arguments/>
-        <systemProperties/>
-        <executable>java</executable>
-        <commandlineArgs>-XstartOnFirstThread --enable-native-access=ALL-UNNAMED -classpath %classpath com.gameengine.app.Game</commandlineArgs>
-    </configuration>
-</plugin>
+      
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.1.0</version>
+        <configuration>
+          <mainClass>com.gameengine.app.Game</mainClass>
+          <arguments/>
+          <systemProperties/>
+          <executable>java</executable>
+          <commandlineArgs>-XstartOnFirstThread --enable-native-access=ALL-UNNAMED -classpath %classpath com.gameengine.app.Game</commandlineArgs>
+        </configuration>
+      </plugin>
+
+      <!-- 创建分发包 -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+        <version>3.6.0</version>
+        <configuration>
+          <descriptors>
+            <descriptor>src/assembly/distribution.xml</descriptor>
+          </descriptors>
+          <finalName>HuluwaGame</finalName>
+        </configuration>
+        <executions>
+          <execution>
+            <id>make-assembly</id>
+            <phase>package</phase>
+            <goals>
+              <goal>single</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
+
+    <!-- 将resources目录加入到构建中 -->
+    <resources>
+      <resource>
+        <directory>resources</directory>
+        <targetPath>resources</targetPath>
+      </resource>
+      <resource>
+        <directory>src/main/resources</directory>
+      </resource>
+    </resources>
 
   </build>
 

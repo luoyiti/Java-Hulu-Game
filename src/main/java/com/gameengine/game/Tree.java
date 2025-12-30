@@ -41,12 +41,27 @@ public class Tree extends GameObject {
     private void renderBodyParts() {
         TransformComponent transform = getComponent(TransformComponent.class);
         if (transform == null) return;
-        Vector2 p = transform.getPosition();
+        
+        Vector2 worldPos = transform.getPosition();
+        Vector2 screenPos = worldPos;
+        
+        // 如果存在相机，将世界坐标转换为屏幕坐标
+        if (getScene() != null && getScene().getCamera() != null) {
+            com.gameengine.core.Camera camera = getScene().getCamera();
+            
+            // 视锥剔除：只渲染可见的树木
+            if (!camera.isVisible(worldPos, 16, 16)) {
+                return;
+            }
+            
+            // 转换为屏幕坐标
+            screenPos = camera.worldToScreen(worldPos);
+        }
         
         // 渲染树干
-        renderer.drawRect(p.x - 1.0f, p.y, 2.0f, 10.0f, 0.54f, 0.27f, 0.07f, 1.0f);
+        renderer.drawRect(screenPos.x - 1.0f, screenPos.y, 2.0f, 10.0f, 0.54f, 0.27f, 0.07f, 1.0f);
         
         // 渲染树冠（顶部）
-        renderer.drawCircle(p.x, p.y - 5.0f, 8.0f, 32, 0.0f, 0.5f, 0.0f, 1.0f);
+        renderer.drawCircle(screenPos.x, screenPos.y - 5.0f, 8.0f, 32, 0.0f, 0.5f, 0.0f, 1.0f);
     }
 }

@@ -16,6 +16,7 @@ public class GamePerformance {
 
     /**
      * 每帧调用此方法更新FPS
+     * 
      * @param deltaTime 帧间隔时间（秒）
      */
     public void update(float deltaTime) {
@@ -49,9 +50,9 @@ public class GamePerformance {
         // // 先绘制半透明背景
         // renderer.drawRect(20, 50, 100, 60, 0.0f, 0.0f, 0.0f, 0.7f);
         // 在屏幕左上角显示FPS文字，位于生命条下方
-        
+
         renderer.drawText(String.format("FPS: %.1f", currentFPS), 25, 105,
-                         14, 1.0f, 1.0f, 1.0f, 1.0f);
+                14, 1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     /**

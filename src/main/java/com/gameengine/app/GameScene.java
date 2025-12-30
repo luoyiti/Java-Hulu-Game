@@ -4,10 +4,16 @@ import com.gameengine.components.*;
 import com.gameengine.core.GameObject;
 import com.gameengine.core.GameLogic;
 import com.gameengine.core.ParticleSystem;
+import com.gameengine.dialogue.DialogueConfigurator;
+import com.gameengine.dialogue.DialogueManager;
+import com.gameengine.dialogue.DialogueTriggerType;
 import com.gameengine.game.*;
 import com.gameengine.graphics.IRenderer;
+import com.gameengine.level.EnemyFactory;
+import com.gameengine.level.LevelManager;
 import com.gameengine.math.Vector2;
 import com.gameengine.scene.Scene;
+import com.gameengine.ui.GameUIManager;
 
 import java.io.FileWriter;
 import java.util.*;
@@ -23,8 +29,12 @@ public class GameScene extends Scene {
     private Random random;
     private float time;
     private GameLogic gameLogic;
-    private int level;
     private GameEngine engine;
+    
+    // 管理器
+    private LevelManager levelManager;
+    private GameUIManager uiManager;
+    private DialogueConfigurator dialogueConfigurator;
 
     // 录制系统
     private boolean isRecording;
@@ -39,6 +49,8 @@ public class GameScene extends Scene {
     private ParticleSystem playerParticles;
     private List<ParticleSystem> collisionParticles;
     private Map<GameObject, ParticleSystem> EnemyParticles;
+    // 粒子效果开关（默认关闭）
+    private boolean particlesEnabled = false;
 
     // 时间系统
     private boolean waitingReturn;
@@ -46,6 +58,13 @@ public class GameScene extends Scene {
     private float freezeTimer;
     private final float inputCooldown = 0.25f;
     private final float freezeDelay = 0.20f;
+
+    // 对话系统
+    private DialogueManager dialogueManager;
+    private boolean gameStartDialogueTriggered = false;
+    private boolean gameOverDialogueTriggered = false;
+    private int lastLevel = 0;
+    private boolean isEndlessMode = false;
 
     public GameScene(String name, GameEngine engine) {
         super(name);
@@ -56,6 +75,8 @@ public class GameScene extends Scene {
         this.recordingWriter = null;
     }
 
+    
+
     public void setRecording(FileWriter fw) {
         this.isRecording = true;
         this.recordingWriter = fw;
@@ -64,29 +85,67 @@ public class GameScene extends Scene {
     @Override
     public void initialize() {
         super.initialize();
-        this.gameLogic = new GameLogic(this, engine);
-        this.level = 1;
-        this.renderer = engine.getRenderer();
+        // Only create missing dependencies so tests can inject fakes
+        if (this.gameLogic == null) {
+            this.gameLogic = new GameLogic(this, engine);
+        }
 
-        // 创建初始游戏对象
+        if (this.renderer == null) {
+            this.renderer = engine.getRenderer();
+        }
+
+        // 创建相机（视口800x600，世界地图2000x1500）
+        this.camera = new com.gameengine.core.Camera(
+                800, 600,
+                GameLogic.WORLD_WIDTH,
+                GameLogic.WORLD_HEIGHT);
+        this.camera.setSmoothSpeed(0.15f); // 设置平滑跟随速度
+
+        // 创建初始游戏对象（只创建玩家，怪物在对话结束后生成）
         createHulu();
-        createEnemyWizard();
-        // 初始游戏关卡
-        level1();
 
-        // 初始化粒子效果
-        collisionParticles = new ArrayList<>();
-        EnemyParticles = new HashMap<>();
+        // 初始化相机位置到玩家位置
+        GameObject player = gameLogic.getPlayer();
+        if (player != null) {
+            TransformComponent playerTransform = player.getComponent(TransformComponent.class);
+            if (playerTransform != null) {
+                camera.setPosition(playerTransform.getPosition());
+            }
+        }
 
-        playerParticles = new ParticleSystem(renderer, new Vector2(renderer.getWidth() / 2.0f, renderer.getHeight() / 2.0f));
-        playerParticles.setActive(true);
+        // 初始化管理器
+        if (this.levelManager == null) {
+            EnemyFactory enemyFactory = new EnemyFactory(renderer, this, gameLogic);
+            this.levelManager = new LevelManager(enemyFactory);
+        }
+        if (this.uiManager == null) {
+            this.uiManager = new GameUIManager(renderer, gameLogic);
+        }
+        if (this.dialogueConfigurator == null) {
+            this.dialogueConfigurator = new DialogueConfigurator(renderer);
+        }
+        if (this.dialogueManager == null && this.dialogueConfigurator != null) {
+            this.dialogueManager = dialogueConfigurator.getDialogueManager();
+        }
 
         // 初始化时间系统
         this.waitingReturn = false;
         this.waitInputTimer = 0f;
         this.freezeTimer = 0f;
 
+        // 初始化对话系统
+        dialogueConfigurator.initializeAllDialogues();
+        dialogueConfigurator.triggerGameStart();
+        gameStartDialogueTriggered = true;
+        lastLevel = 0; // 从0开始，表示还没有完成任何关卡
     }
+
+    // 标记是否已经生成了第一关怪物
+    private boolean enemiesSpawned = false;
+    // 标记当前关卡的敌人是否已经全部生成完毕（用于检测关卡完成）
+    private boolean levelEnemiesActive = false;
+    // 等待敌人添加到场景的计数器（等待1帧后再激活关卡完成检测）
+    private int enemySpawnDelayFrames = 0;
 
     public float getTime() {
         return this.time;
@@ -97,9 +156,58 @@ public class GameScene extends Scene {
         super.update(deltaTime);
         time += deltaTime;
 
+        // 更新对话系统
+        if (dialogueManager != null) {
+            dialogueManager.update(deltaTime, engine.getInputManager());
+
+            // 如果对话正在进行，只更新相机，暂停其他游戏逻辑
+            if (dialogueManager.isDialogueActive()) {
+                // 更新相机位置跟随玩家（即使在对话中也要更新）
+                if (camera != null && gameLogic != null) {
+                    GameObject player = gameLogic.getPlayer();
+                    if (player != null) {
+                        TransformComponent playerTransform = player.getComponent(TransformComponent.class);
+                        if (playerTransform != null) {
+                            camera.follow(playerTransform.getPosition(), deltaTime);
+                        }
+                    }
+                }
+                return; // 跳过游戏战斗逻辑更新
+            } else {
+                // 对话结束后，检查是否需要生成第一关怪物
+                if (!enemiesSpawned && gameStartDialogueTriggered) {
+                    levelManager.spawnCurrentLevel();
+                    enemiesSpawned = true;
+                    enemySpawnDelayFrames = 2; // 等待2帧让敌人添加到场景
+                }
+            }
+        }
+        
+        // 处理敌人生成延迟
+        if (enemySpawnDelayFrames > 0) {
+            enemySpawnDelayFrames--;
+            if (enemySpawnDelayFrames == 0) {
+                levelEnemiesActive = true; // 延迟后才激活关卡完成检测
+            }
+        }
+
+        // 更新相机位置跟随玩家
+        if (camera != null && gameLogic != null) {
+            GameObject player = gameLogic.getPlayer();
+            if (player != null) {
+                TransformComponent playerTransform = player.getComponent(TransformComponent.class);
+                if (playerTransform != null) {
+                    camera.follow(playerTransform.getPosition(), deltaTime);
+                }
+            }
+        }
+
         // 检查ESC键退回主界面
         if (engine.getInputManager().isKeyJustPressed(256)) { // GLFW_KEY_ESCAPE（Esc 键）
             // 创建主菜单场景
+            if (dialogueManager != null) {
+                dialogueManager.reset(); // 重置对话状态
+            }
             MenuScene menuScene = new MenuScene(engine, "MainMenu");
             engine.setScene(menuScene);
         }
@@ -109,7 +217,8 @@ public class GameScene extends Scene {
             if (!isRecording) {
                 System.out.println("开始录制游戏...");
                 try {
-                    this.recordingWriter = new FileWriter("recordings/recording_" + System.currentTimeMillis() + ".txt", true);
+                    this.recordingWriter = new FileWriter(
+                            "recordings/recording_" + System.currentTimeMillis() + ".json", true);
                     this.isRecording = true;
                 } catch (Exception e) {
                     System.err.println("无法创建录制文件: " + e.getMessage());
@@ -139,6 +248,8 @@ public class GameScene extends Scene {
         gameLogic.updateEnemyMovement(deltaTime);
         gameLogic.updateAttack(deltaTime);
         gameLogic.updateEnemyAttack(deltaTime);
+        gameLogic.updateEnemyKingSkills(deltaTime); // 更新国王追踪火球技能
+        gameLogic.updateEnemyWizardSkills(deltaTime); // 更新法师陷阱球技能
         gameLogic.checkEntityAlive();
 
         // 记录游戏过程（每0.1秒记录一次）
@@ -154,35 +265,44 @@ public class GameScene extends Scene {
 
         boolean wasGameOver = gameLogic.isGameOver();
         gameLogic.checkAiCollisions(deltaTime);
-        
-        if (gameLogic.isGameOver() && !wasGameOver) {
+
+        // 检测游戏结束并触发失败对话
+        if (gameLogic.isGameOver() && !wasGameOver && !gameOverDialogueTriggered) {
+            gameOverDialogueTriggered = true;
+            dialogueManager.triggerEvent(DialogueTriggerType.DEFEAT);
+            
             GameObject player = gameLogic.getPlayer();
-            if (player != null) {
-                TransformComponent transform = player.getComponent(TransformComponent.class);
-                if (transform != null) {
-                    ParticleSystem.Config cfg = new ParticleSystem.Config();
-                    cfg.initialCount = 0;
-                    cfg.spawnRate = 9999f;
-                    cfg.opacityMultiplier = 1.0f;
-                    cfg.minRenderSize = 3.0f;
-                    cfg.burstSpeedMin = 250f;
-                    cfg.burstSpeedMax = 520f;
-                    cfg.burstLifeMin = 0.5f;
-                    cfg.burstLifeMax = 1.2f;
-                    cfg.burstSizeMin = 18f;
-                    cfg.burstSizeMax = 42f;
-                    cfg.burstR = 1.0f;
-                    cfg.burstGMin = 0.0f;
-                    cfg.burstGMax = 0.05f;
-                    cfg.burstB = 0.0f;
-                    ParticleSystem explosion = new ParticleSystem(renderer, transform.getPosition(), cfg);
-                    explosion.burst(180);
-                    collisionParticles.add(explosion);
-                    waitingReturn = true;
-                    waitInputTimer = 0f;
-                    freezeTimer = 0f;
-                }
-            }
+
+            // if (player != null) {
+            //     TransformComponent transform = player.getComponent(TransformComponent.class);
+            //     if (transform != null && particlesEnabled) {
+            //         ParticleSystem.Config cfg = new ParticleSystem.Config();
+            //         cfg.initialCount = 0;
+            //         cfg.spawnRate = 9999f;
+            //         cfg.opacityMultiplier = 1.0f;
+            //         cfg.minRenderSize = 3.0f;
+            //         cfg.burstSpeedMin = 250f;
+            //         cfg.burstSpeedMax = 520f;
+            //         cfg.burstLifeMin = 0.5f;
+            //         cfg.burstLifeMax = 1.2f;
+            //         cfg.burstSizeMin = 18f;
+            //         cfg.burstSizeMax = 42f;
+            //         cfg.burstR = 1.0f;
+            //         cfg.burstGMin = 0.0f;
+            //         cfg.burstGMax = 0.05f;
+            //         cfg.burstB = 0.0f;
+            //         ParticleSystem explosion = new ParticleSystem(renderer, transform.getPosition(), cfg);
+            //         explosion.burst(180);
+            //         if (collisionParticles != null) {
+            //             collisionParticles.add(explosion);
+            //         }
+            //     }
+            // }
+
+            // 即使关闭粒子效果，也保留等待返回的流程
+            waitingReturn = true;
+            waitInputTimer = 0f;
+            freezeTimer = 0f;
 
             if (waitingReturn) {
                 waitInputTimer += deltaTime;
@@ -190,19 +310,46 @@ public class GameScene extends Scene {
             }
         }
 
-        // 游戏所处的关卡
-        if (gameLogic.checkEnemiesDied()) {
-            this.level++;
+        // 游戏所处的关卡 - 只有当敌人已生成且全部死亡时才触发下一关
+        if (levelEnemiesActive && gameLogic.checkEnemiesDied()) {
+            levelEnemiesActive = false; // 重置标志，等待下一关敌人生成
+            int currentLevel = levelManager.getCurrentLevel();
 
-            if (this.level == 2) {
-                level2();
+            // 触发关卡完成对话（使用刚完成的关卡号）
+            if (currentLevel != lastLevel) {
+                // 先触发刚完成关卡的对话
+                if (currentLevel <= 7) {
+                    dialogueConfigurator.triggerLevelComplete(currentLevel + 1); // 触发下一关的开始对话
+                }
+                lastLevel = currentLevel;
+            }
+
+            // 进入下一关
+            levelManager.nextLevel();
+            currentLevel = levelManager.getCurrentLevel();
+
+            // 检查是否进入无尽模式（第七关之后）
+            if (currentLevel > 7) {
+                if (!isEndlessMode) {
+                    isEndlessMode = true;
+                    dialogueConfigurator.triggerEndlessMode();
+                }
+                // 无尽模式：生成随机敌人组合
+                levelManager.spawnEndlessLevel();
+                enemySpawnDelayFrames = 2; // 等待2帧让敌人添加到场景
             } else {
-                level3();
+                // 更新玩家形象为当前关卡对应的葫芦娃
+                updatePlayerImageForLevel(currentLevel);
+                // 生成下一关怪物
+                levelManager.spawnCurrentLevel();
+                enemySpawnDelayFrames = 2; // 等待2帧让敌人添加到场景
             }
         }
 
-        // 游戏粒子效果
-        updateParticles(deltaTime);
+        // 游戏粒子效果（关闭时不更新）
+        if (particlesEnabled) {
+            updateParticles(deltaTime);
+        }
 
         if (waitingReturn) {
             waitInputTimer += deltaTime;
@@ -211,6 +358,13 @@ public class GameScene extends Scene {
     }
 
     private void updateParticles(float deltaTime) {
+        if (!particlesEnabled) {
+            return;
+        }
+
+        if (EnemyParticles == null || collisionParticles == null) {
+            return;
+        }
         boolean freeze = waitingReturn && freezeTimer >= freezeDelay;
 
         if (playerParticles != null && !freeze) {
@@ -233,7 +387,8 @@ public class GameScene extends Scene {
                     if (particles == null) {
                         TransformComponent transform = Enemy.getComponent(TransformComponent.class);
                         if (transform != null) {
-                            particles = new ParticleSystem((IRenderer) renderer, transform.getPosition(), ParticleSystem.Config.light());
+                            particles = new ParticleSystem((IRenderer) renderer, transform.getPosition(),
+                                    ParticleSystem.Config.light());
                             particles.setActive(true);
                             EnemyParticles.put(Enemy, particles);
                         }
@@ -271,166 +426,71 @@ public class GameScene extends Scene {
 
     @Override
     public void render() {
-        // 绘制背景（基于图片）
-        renderer.drawImage(
-            "resources/picture/game_scene.png",
-            0, 0,
-            800, 600,
-            1.0f
-        );
+        // 绘制背景（基于图片，根据相机位置滚动）
+        if (camera != null) {
+            Vector2 camPos = camera.getPosition();
+            float bgOffsetX = -(camPos.x - 400) * 0.5f; // 视差滚动效果（背景移动速度减半）
+            float bgOffsetY = -(camPos.y - 300) * 0.5f;
+
+            // 绘制平铺背景以覆盖整个视口
+            renderer.drawImage(
+                    "resources/picture/game_scene.png",
+                    bgOffsetX, bgOffsetY,
+                    2000.0f, 1500.0f,
+                    1.0f);
+        } else {
+            // 如果没有相机，使用原来的固定背景
+            renderer.drawImage(
+                    "resources/picture/game_scene.png",
+                    0, 0,
+                    800, 600,
+                    1.0f);
+        }
+
         super.render();
 
-        renderParticles();
+        // 粒子效果渲染（关闭时不渲染）
+        if (particlesEnabled) {
+            renderParticles();
+        }
 
-        if (gameLogic.isGameOver()) {
-            float cx = renderer.getWidth() / 2.0f;
-            float cy = renderer.getHeight() / 2.0f;
-            renderer.drawRect(0, 0, renderer.getWidth(), renderer.getHeight(), 0.0f, 0.0f, 0.0f, 0.35f);
-            renderer.drawRect(cx - 200, cy - 60, 400, 120, 0.0f, 0.0f, 0.0f, 0.7f);
-            renderer.drawText("GAME OVER", cx - 100, cy - 10, 1.0f, 1.0f, 1.0f, 1.0f, cy + 40);
-            renderer.drawText("PRESS ANY KEY TO RETURN", cx - 180, cy + 30, 0.8f, 0.8f, 0.8f, 1.0f, cy + 40);
+        // 使用 UIManager 渲染所有UI元素
+        if (uiManager != null) {
+            uiManager.renderAll(levelManager.getCurrentLevel(), isRecording, gameLogic.isGameOver());
         }
-        
-        // 渲染level数在场景正上方
-        renderLevel();
-        
-        // 渲染玩家血条在屏幕左上角
-        renderPlayerHealthBar();
-        
-        // 渲染技能冷却条在屏幕右上角
-        renderSkillCooldownBar();
-        
-        // 渲染录制按钮提示在屏幕左下角
-        renderRecordingHint();
-    }
-    
-    /**
-     * 在屏幕左下角渲染录制按钮提示
-     */
-    private void renderRecordingHint() {
-        int hintX = 10;
-        int hintY = renderer.getHeight() - 40;
-        
-        if (isRecording) {
-            // 录制中显示红色圆点和停止提示
-            renderer.drawCircle(hintX + 8, hintY + 10, 6, 16, 1.0f, 0.0f, 0.0f, 1.0f);
-            renderer.drawText("录制中... (R 停止)", hintX + 20, hintY + 15, 14, 1.0f, 0.3f, 0.3f, 1.0f);
-        } else {
-            // 未录制时显示灰色圆点和开始提示
-            renderer.drawCircle(hintX + 8, hintY + 10, 6, 16, 0.5f, 0.5f, 0.5f, 1.0f);
-            renderer.drawText("按 R 开始录制", hintX + 20, hintY + 15, 14, 0.7f, 0.7f, 0.7f, 1.0f);
+
+        // 渲染对话框（最后渲染，确保在最上层）
+        if (dialogueManager != null) {
+            dialogueManager.render();
         }
     }
-    
+
     private void renderParticles() {
+        if (!particlesEnabled) {
+            return;
+        }
+
+        if (EnemyParticles == null || collisionParticles == null) {
+            return;
+        }
         if (playerParticles != null) {
             int count = playerParticles.getParticleCount();
             if (count > 0) {
-                playerParticles.render();
+                playerParticles.render(camera);
             }
         }
 
         for (ParticleSystem ps : EnemyParticles.values()) {
             if (ps != null && ps.getParticleCount() > 0) {
-                ps.render();
+                ps.render(camera);
             }
         }
 
         for (ParticleSystem ps : collisionParticles) {
             if (ps != null && ps.getParticleCount() > 0) {
-                ps.render();
+                ps.render(camera);
             }
         }
-    }
-
-    /**
-     * 在屏幕左上角渲染玩家血条
-     */
-    private void renderPlayerHealthBar() {
-        // 查找玩家对象
-        GameObject player = null;
-        for (GameObject obj : getGameObjects()) {
-            if ("Player".equals(obj.getidentity())) {
-                player = obj;
-                break;
-            }
-        }
-        
-        if (player != null) {
-            LifeFeatureComponent lifeFeature = player.getComponent(LifeFeatureComponent.class);
-            if (lifeFeature != null) {
-                int currentHealth = lifeFeature.getBlood();
-                int maxHealth = 100;
-                
-                // // 绘制半透明黑色背景框
-                // renderer.drawRect(10, 10, 160, 40, 0.0f, 0.0f, 0.0f, 0.7f);
-                
-                // 绘制"玩家血量"标签
-                renderer.drawText("玩家血量", 20, 20, 20, 1.0f, 1.0f, 1.0f, 1.0f);
-                
-                // 绘制血条
-                renderer.drawHealthBar(20, 50, 120, 10, currentHealth, maxHealth);
-                
-                // 绘制血量数值
-                String healthText = currentHealth + " / " + maxHealth;
-                renderer.drawText(healthText, 145, 60, 12, 1.0f, 1.0f, 1.0f, 1.0f);
-            }
-        }
-    }
-    
-    /**
-     * 在屏幕右上角渲染技能冷却条
-     */
-    private void renderSkillCooldownBar() {
-        if (gameLogic != null) {
-            float cooldownPercentage = gameLogic.getSkillCooldownPercentage();
-            
-            // 冷却条的位置和尺寸（根据地图尺寸800x600调整位置）
-            int barX = 610;  // 右上角 x 坐标
-            int barY = 10;   // 右上角 y 坐标
-            int barWidth = 180;
-            int barHeight = 40;
-            
-            // // 绘制半透明黑色背景框
-            // renderer.drawRect(barX, barY, barWidth, barHeight, 0.0f, 0.0f, 0.0f, 0.7f);
-            
-            // 绘制"技能冷却"标签
-            renderer.drawText("技能冷却 (J)", barX + 10, barY + 10, 20, 1.0f, 1.0f, 1.0f, 1.0f);
-            
-            // 绘制冷却条
-            int cooldownBarWidth = 140;
-            int cooldownBarHeight = 10;
-            int cooldownBarX = barX + 20;
-            int cooldownBarY = barY + 25;
-            
-            // // 绘制冷却条背景（灰色）
-            // renderer.drawRect(cooldownBarX, cooldownBarY, cooldownBarWidth, cooldownBarHeight, 
-            //                 0.3f, 0.3f, 0.3f, 1.0f);
-            
-            // 根据冷却状态绘制冷却进度条
-            int filledWidth = (int)(cooldownBarWidth * cooldownPercentage);
-            
-            if (cooldownPercentage >= 1.0f) {
-                // 冷却完成，绘制绿色条
-                renderer.drawRect(cooldownBarX, cooldownBarY+10, filledWidth, cooldownBarHeight, 
-                                0.0f, 1.0f, 0.0f, 1.0f);
-            } else {
-                // 冷却中，绘制黄色条
-                renderer.drawRect(cooldownBarX, cooldownBarY+10, filledWidth, cooldownBarHeight, 
-                                1.0f, 0.8f, 0.0f, 1.0f);
-            }
-            
-            // 绘制百分比文字
-            String percentText = String.format("%.0f%%", cooldownPercentage * 100);
-            renderer.drawText(percentText, barX + 165, barY + 35, 12, 1.0f, 1.0f, 1.0f, 1.0f);
-        }
-    }
-
-    private void renderLevel() {
-        // 在屏幕顶部中央绘制level数
-        String levelText = "Level: " + level;
-        // 屏幕宽度800，文本居中，假设字体大小为20，位置大约在x=400-50=350
-        renderer.drawText(levelText, 350, 30, 20, 1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     private void createHulu() {
@@ -438,183 +498,54 @@ public class GameScene extends Scene {
          * 创建葫芦娃实体，他会被系统当作主玩家
          * 可以通过GameLogic中的规则操控他
          */
-        HuluPlayer hulu = new HuluPlayer(renderer, this);
+        HuluPlayer hulu = new HuluPlayer(renderer, this, "Hulu Player");
+        // 第一关使用大娃形象
+        hulu.setImageForLevel(1);
         addGameObject(hulu);
     }
-
-    private void createEnemySoldiers() {
-        for (int i = 0; i <= 5; i++) {
-            createEnemySoldier();
-        }
-    }
     
-    // /**
-    //  * 创建带透明度和旋转的蛇形敌人示例
-    //  * 
-    //  * @param imagePath 图片路径
-    //  * @param imageSize 图片尺寸
-    //  * @param alpha 透明度 (0.0-1.0)
-    //  * @param rotation 旋转角度（弧度）
-    //  */
-    // @SuppressWarnings("unused")
-    // private void createEnemySnakeWithEffects(String imagePath, Vector2 imageSize, float alpha, float rotation) {
-    //     Vector2 position = new Vector2(
-    //         random.nextFloat() * 700 + 50,
-    //         random.nextFloat() * 500 + 50
-    //     );
-        
-    //     EnemySnake enemySnake = new EnemySnake(renderer, position, imagePath, imageSize, alpha, rotation, random);
-    //     addGameObject(enemySnake);
-    // }
-
-    private void createEnemySoldier() {
-        // 生成远离玩家的位置（优先相对于当前玩家位置）
-        // 确保敌人距离玩家至少 minDistance 像素
-        Vector2 position;
-        int minDistance = 200; // 最小距离
-        int maxAttempts = 200; // 最大尝试次数（增大重试次数以提高成功率）
-        int attempts = 0;
-
-        // 使用当前玩家位置作为参考中心（如果不存在则回退到地图中心）
-        Vector2 playerCenter = new Vector2(400, 300);
+    /**
+     * 根据关卡更新玩家形象和技能
+     * 每一关对应一个葫芦娃兄弟，并随机分配一种五行技能
+     * @param level 关卡号（1-7）
+     */
+    private void updatePlayerImageForLevel(int level) {
         if (gameLogic != null) {
             GameObject player = gameLogic.getPlayer();
-            if (player != null) {
-                TransformComponent pt = player.getComponent(TransformComponent.class);
-                if (pt != null) {
-                    playerCenter = pt.getPosition();
-                }
+            if (player instanceof HuluPlayer) {
+                HuluPlayer huluPlayer = (HuluPlayer) player;
+                huluPlayer.setImageForLevel(level);
+                // 每关重新初始化技能，随机分配五行技能之一
+                huluPlayer.initAttackSkillJ();
             }
         }
-
-        do {
-            position = new Vector2(
-                random.nextFloat() * 800,
-                random.nextFloat() * 600
-            );
-            attempts++;
-
-            // 计算与玩家中心的距离
-            float dx = position.x - playerCenter.x;
-            float dy = position.y - playerCenter.y;
-            float distance = (float)Math.sqrt(dx * dx + dy * dy);
-
-            // 如果距离足够远，或者尝试次数过多，就使用这个位置
-            if (distance >= minDistance || attempts >= maxAttempts) {
-                break;
-            }
-        } while (true);
-        
-        EnemySoldier enemySoldier = new EnemySoldier(renderer, position, "resources/picture/bee.png", new Vector2(40, 60), random);
-        addGameObject(enemySoldier);
     }
 
     /**
-     * 创建国王怪
+     * Overloaded constructor to allow dependency injection for testing.
+     * Any injected dependency that is null will be created in initialize().
      */
-    private void createEnemyKing() {
-        // 生成远离玩家中心(400, 300)的随机位置
-        // 确保敌人距离玩家至少200像素
-        Vector2 position;
-        int minDistance = 200; // 最小距离
-        int maxAttempts = 50; // 最大尝试次数
-        int attempts = 0;
-        
-        do {
-            position = new Vector2(
-                random.nextFloat() * 800,
-                random.nextFloat() * 600
-            );
-            attempts++;
-            
-            // 计算与玩家中心的距离
-            float dx = position.x - 400;
-            float dy = position.y - 300;
-            float distance = (float)Math.sqrt(dx * dx + dy * dy);
-            
-            // 如果距离足够远，或者尝试次数过多，就使用这个位置
-            if (distance >= minDistance || attempts >= maxAttempts) {
-                break;
-            }
-        } while (true);
-        
-        EnemyKing enemyKing = new EnemyKing(renderer, this, position, "resources/picture/snake_queen.png", new Vector2(80, 80), random);
-        addGameObject(enemyKing);
-    }
+    public GameScene(String name,
+                     GameEngine engine,
+                     GameLogic gameLogic,
+                     IRenderer renderer,
+                     LevelManager levelManager,
+                     GameUIManager uiManager,
+                     DialogueConfigurator dialogueConfigurator,
+                     DialogueManager dialogueManager) {
+        super(name);
+        this.random = new Random();
+        this.time = 0;
+        this.engine = engine;
+        this.isRecording = false;
+        this.recordingWriter = null;
 
-    /**
-     * 创建法师怪
-     */
-    private void createEnemyWizard() {
-        // 生成远离玩家的位置（优先相对于当前玩家位置）
-        // 确保敌人距离玩家至少 minDistance 像素
-        Vector2 position;
-        int minDistance = 200; // 最小距离
-        int maxAttempts = 50; // 最大尝试次数
-        int attempts = 0;
-
-        // 使用当前玩家位置作为参考中心（如果不存在则回退到地图中心）
-        Vector2 playerCenter = new Vector2(400, 300);
-        if (gameLogic != null) {
-            GameObject player = gameLogic.getPlayer();
-            if (player != null) {
-                TransformComponent pt = player.getComponent(TransformComponent.class);
-                if (pt != null) {
-                    playerCenter = pt.getPosition();
-                }
-            }
-        }
-
-        do {
-            position = new Vector2(
-                random.nextFloat() * 800,
-                random.nextFloat() * 600
-            );
-            attempts++;
-
-            // 计算与玩家中心的距离
-            float dx = position.x - playerCenter.x;
-            float dy = position.y - playerCenter.y;
-            float distance = (float)Math.sqrt(dx * dx + dy * dy);
-
-            // 如果距离足够远，或者尝试次数过多，就使用这个位置
-            if (distance >= minDistance || attempts >= maxAttempts) {
-                break;
-            }
-        } while (true);
-        
-        EnemyWizard enemyWizard = new EnemyWizard(renderer, position, "resources/picture/wizard.png", new Vector2(50, 70), random);
-        addGameObject(enemyWizard);
-    }
-
-    // private void createTree() {
-    //     Vector2 position = new Vector2(
-    //         random.nextFloat() * 800,
-    //         random.nextFloat() * 600
-    //     );
-        
-    //     Tree tree = new Tree(renderer, position);
-    //     addGameObject(tree);
-    // }
-
-    // private void createTrees() {
-    //     for (int i = 0; i < 3; i++) {
-    //         createTree();
-    //     }
-    // }
-
-    public void level1() {
-        createEnemySoldiers();
-        // createEnemySnake("resources/picture/snake_queen.png", new Vector2(40, 40));
-    }
-
-    public void level2() {
-        createEnemyKing();
-    }
-
-    public void level3() {
-        createEnemySoldiers();
-        createEnemyKing();
+        this.gameLogic = gameLogic;
+        this.renderer = renderer;
+        this.levelManager = levelManager;
+        this.uiManager = uiManager;
+        this.dialogueConfigurator = dialogueConfigurator;
+        this.dialogueManager = dialogueManager;
     }
 
 }

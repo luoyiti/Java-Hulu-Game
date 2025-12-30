@@ -424,7 +424,8 @@ public class Renderer extends JFrame {
         @Override
         public void draw(Graphics2D g) {
             g.setColor(color);
-            Font font = new Font("Arial", Font.BOLD, (int) size);
+            // 使用支持中文的系统字体
+            Font font = new Font("Dialog", Font.BOLD, (int) size);
             g.setFont(font);
             g.drawString(text, (int) x, (int) y);
         }

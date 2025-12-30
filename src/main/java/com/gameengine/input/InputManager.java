@@ -33,6 +33,21 @@ public class InputManager {
         }
         return instance;
     }
+
+    /**
+     * 重置输入状态（测试或重新初始化时使用）
+     */
+    public void reset() {
+        pressedKeys.clear();
+        justPressedKeys.clear();
+        keyStates.clear();
+        mousePosition.x = 0.0f;
+        mousePosition.y = 0.0f;
+        for (int i = 0; i < mouseButtons.length; i++) {
+            mouseButtons[i] = false;
+            mouseButtonsJustPressed[i] = false;
+        }
+    }
     
     /**
      * 更新输入状态

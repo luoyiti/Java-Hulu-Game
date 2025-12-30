@@ -2,6 +2,7 @@ package com.gameengine.scene;
 
 import com.gameengine.core.GameObject;
 import com.gameengine.core.Component;
+import com.gameengine.core.Camera;
 // 移除具体游戏逻辑的import
 import java.util.*;
 import java.util.stream.Collectors;
@@ -16,6 +17,7 @@ public class Scene {
     private List<GameObject> objectsToRemove;
     private boolean initialized;
     private float time;
+    protected Camera camera; // 相机实例
     // 移除未使用的组件索引
     
     public Scene(String name) {
@@ -87,6 +89,7 @@ public class Scene {
      * 添加游戏对象到场景
      */
     public void addGameObject(GameObject gameObject) {
+        gameObject.setScene(this); // 设置场景引用
         objectsToAdd.add(gameObject);
     }
     
@@ -130,6 +133,20 @@ public class Scene {
      */
     public List<GameObject> getGameObjects() {
         return new ArrayList<>(gameObjects);
+    }
+    
+    /**
+     * 获取场景的相机
+     */
+    public Camera getCamera() {
+        return camera;
+    }
+    
+    /**
+     * 设置场景的相机
+     */
+    public void setCamera(Camera camera) {
+        this.camera = camera;
     }
     
     // 移除具体游戏逻辑，让子类实现

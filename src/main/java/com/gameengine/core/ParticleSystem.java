@@ -15,9 +15,9 @@ public class ParticleSystem {
     private float timeSinceLastSpawn;
     private Vector2 position;
     private boolean active;
-    
+
     private Config config;
-    
+
     private static class Particle {
         private Vector2 position;
         private Vector2 velocity;
@@ -25,7 +25,7 @@ public class ParticleSystem {
         private float maxLife;
         private float size;
         private float r, g, b, a;
-        
+
         public Particle(Vector2 position, Vector2 velocity, float life, float size, float r, float g, float b) {
             this.position = new Vector2(position);
             this.velocity = new Vector2(velocity);
@@ -37,46 +37,46 @@ public class ParticleSystem {
             this.b = b;
             this.a = 1.0f;
         }
-        
+
         public void update(float deltaTime) {
             position = position.add(velocity.multiply(deltaTime));
             life -= deltaTime;
-            
+
             if (life > 0) {
                 a = life / maxLife;
                 velocity = velocity.multiply(0.98f);
             }
         }
-        
+
         public boolean isAlive() {
             return life > 0;
         }
-        
+
         public Vector2 getPosition() {
             return new Vector2(position);
         }
-        
+
         public float getSize() {
             return size;
         }
-        
+
         public float getR() {
             return r;
         }
-        
+
         public float getG() {
             return g;
         }
-        
+
         public float getB() {
             return b;
         }
-        
+
         public float getA() {
             return a;
         }
     }
-    
+
     public static class Config {
         public float spawnRate = 0.015f;
         public int initialCount = 30;
@@ -91,7 +91,7 @@ public class ParticleSystem {
         public float b = 0.0f;
         public float opacityMultiplier = 1.0f;
         public float minRenderSize = 2.0f;
-        
+
         public float burstSpeedMin = 80f;
         public float burstSpeedMax = 200f;
         public float burstLifeMin = 0.6f;
@@ -102,7 +102,7 @@ public class ParticleSystem {
         public float burstGMin = 0.5f;
         public float burstGMax = 1.0f;
         public float burstB = 0.0f;
-        
+
         public static Config defaultPlayer() {
             Config config = new Config();
             config.spawnRate = 0.015f;
@@ -120,7 +120,7 @@ public class ParticleSystem {
             config.minRenderSize = 2.0f;
             return config;
         }
-        
+
         public static Config light() {
             Config config = new Config();
             config.spawnRate = 0.05f;
@@ -139,11 +139,11 @@ public class ParticleSystem {
             return config;
         }
     }
-    
+
     public ParticleSystem(IRenderer renderer, Vector2 position) {
         this(renderer, position, Config.defaultPlayer());
     }
-    
+
     public ParticleSystem(IRenderer renderer, Vector2 position, Config config) {
         this.particles = new ArrayList<>();
         this.random = new Random();
@@ -153,22 +153,22 @@ public class ParticleSystem {
         this.spawnRate = config.spawnRate;
         this.timeSinceLastSpawn = 0f;
         this.active = true;
-        
+
         for (int i = 0; i < config.initialCount; i++) {
             spawnParticle();
         }
     }
-    
+
     public void setActive(boolean active) {
         this.active = active;
     }
-    
+
     public void setPosition(Vector2 position) {
         if (position != null) {
             this.position = new Vector2(position);
         }
     }
-    
+
     public void update(float deltaTime) {
         if (active) {
             timeSinceLastSpawn += deltaTime;
@@ -177,7 +177,7 @@ public class ParticleSystem {
                 timeSinceLastSpawn = 0f;
             }
         }
-        
+
         Iterator<Particle> iterator = particles.iterator();
         while (iterator.hasNext()) {
             Particle particle = iterator.next();
@@ -187,92 +187,107 @@ public class ParticleSystem {
             }
         }
     }
-    
+
     private void spawnParticle() {
-        if (position == null) return;
-        
+        if (position == null)
+            return;
+
         float angle = (float) (random.nextFloat() * 2.0 * Math.PI);
         float speed = config.speedMin + random.nextFloat() * (config.speedMax - config.speedMin);
         Vector2 velocity = new Vector2(
-            (float) (Math.cos(angle) * speed),
-            (float) (Math.sin(angle) * speed)
-        );
-        
+                (float) (Math.cos(angle) * speed),
+                (float) (Math.sin(angle) * speed));
+
         float life = config.lifeMin + random.nextFloat() * (config.lifeMax - config.lifeMin);
         float size = config.sizeMin + random.nextFloat() * (config.sizeMax - config.sizeMin);
-        
+
         float r = config.r;
         float g = config.g;
         float b = config.b;
-        
+
         if (config.r < 1.0f) {
             r = config.r + random.nextFloat() * 0.2f;
         }
         if (config.g < 1.0f) {
             g = config.g + random.nextFloat() * 0.2f;
         }
-        
+
         Particle particle = new Particle(new Vector2(position), velocity, life, size, r, g, b);
         particles.add(particle);
     }
-    
+
     public void setSpawnRate(float rate) {
         this.spawnRate = rate;
     }
-    
+
     public void render() {
-        if (renderer == null) return;
-        
+        render(null);
+    }
+
+    public void render(Camera camera) {
+        if (renderer == null)
+            return;
+
         for (Particle particle : particles) {
-            Vector2 pos = particle.getPosition();
+            Vector2 worldPos = particle.getPosition();
+            Vector2 screenPos = worldPos;
+
+            // 如果有相机，将世界坐标转换为屏幕坐标
+            if (camera != null) {
+                screenPos = camera.worldToScreen(worldPos);
+
+                // 视锥剔除：只渲染可见的粒子
+                if (screenPos.x < -50 || screenPos.x > camera.getViewportWidth() + 50 ||
+                        screenPos.y < -50 || screenPos.y > camera.getViewportHeight() + 50) {
+                    continue;
+                }
+            }
+
+            Vector2 pos = screenPos;
             float size = particle.getSize();
-            
+
             float r = Math.min(1.0f, Math.max(0.0f, particle.getR()));
             float g = Math.min(1.0f, Math.max(0.0f, particle.getG()));
             float b = Math.min(1.0f, Math.max(0.0f, particle.getB()));
             float a = Math.min(1.0f, Math.max(0.0f, particle.getA())) * config.opacityMultiplier;
-            
-            float maxW = renderer != null ? renderer.getWidth() : 1920;
-            float maxH = renderer != null ? renderer.getHeight() : 1080;
-            if (a > 0.01f && pos.x >= -50 && pos.x <= maxW + 50 && pos.y >= -50 && pos.y <= maxH + 50) {
+
+            if (a > 0.01f) {
                 float renderSize = Math.max(config.minRenderSize, size * a);
                 try {
                     renderer.drawRect(
-                        pos.x - renderSize * 0.5f, pos.y - renderSize * 0.5f, 
-                        renderSize, renderSize,
-                        r, g, b, a
-                    );
+                            pos.x - renderSize * 0.5f, pos.y - renderSize * 0.5f,
+                            renderSize, renderSize,
+                            r, g, b, a);
                 } catch (Exception e) {
                 }
             }
         }
     }
-    
+
     public void burst(int count) {
         for (int i = 0; i < count; i++) {
             float angle = (float) (random.nextFloat() * 2.0 * Math.PI);
             float speed = config.burstSpeedMin + random.nextFloat() * (config.burstSpeedMax - config.burstSpeedMin);
             Vector2 velocity = new Vector2(
-                (float) (Math.cos(angle) * speed),
-                (float) (Math.sin(angle) * speed)
-            );
-            
+                    (float) (Math.cos(angle) * speed),
+                    (float) (Math.sin(angle) * speed));
+
             float life = config.burstLifeMin + random.nextFloat() * (config.burstLifeMax - config.burstLifeMin);
             float size = config.burstSizeMin + random.nextFloat() * (config.burstSizeMax - config.burstSizeMin);
-            
+
             float r = config.burstR;
             float g = config.burstGMin + random.nextFloat() * (config.burstGMax - config.burstGMin);
             float b = config.burstB;
-            
+
             Particle particle = new Particle(new Vector2(position), velocity, life, size, r, g, b);
             particles.add(particle);
         }
     }
-    
+
     public int getParticleCount() {
         return particles.size();
     }
-    
+
     public void clear() {
         particles.clear();
     }

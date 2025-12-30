@@ -20,7 +20,7 @@ public class Game {
             // 创建主菜单场景
             MenuScene menuScene = new MenuScene(engine, "MainMenu");
             engine.setScene(menuScene);
-            
+
             // 运行游戏
             engine.run();
         } catch (Exception e) {
@@ -31,5 +31,4 @@ public class Game {
         System.out.println("游戏结束");
     }
 
-    
 }
